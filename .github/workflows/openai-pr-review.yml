@@ -126,6 +126,8 @@ jobs:
       cancel-in-progress: false
     uses: GizClaw/github-workflows/.github/workflows/codex-openai-review.yml@latest
     with:
+      # Art, sounds and the font are Git LFS files (.gitattributes): fetch them for review.
+      lfs-context-paths: '**/*.png,**/*.jpg,**/*.wav,**/*.otf'
       review-instructions: >-
         Review the pull-request diff and report actionable findings.
       issue-review-instructions: >-
@@ -206,6 +208,8 @@ jobs:
       cancel-in-progress: false
     uses: GizClaw/github-workflows/.github/workflows/codex-openai-review.yml@latest
     with:
+      # Art, sounds and the font are Git LFS files (.gitattributes): fetch them for review.
+      lfs-context-paths: '**/*.png,**/*.jpg,**/*.wav,**/*.otf'
       review-instructions: >-
         Review the pull-request diff and report actionable findings.
       issue-review-instructions: >-
