@@ -57,3 +57,4 @@ pub const NOT_YET: Text = Text::new("还没收集", "Not collected yet");
 pub const HIDDEN_NAME: Text = Text::new("？？？", "???");
 pub const HIDDEN_COND: Text = Text::new("隐藏卡片：试试意想不到的吃法。", "A hidden card: eat in an unexpected way.");
 pub const CLOSE: Text = Text::new("关闭", "Close");
+pub const FULLNESS: Text = Text::new("饱腹", "Fullness");

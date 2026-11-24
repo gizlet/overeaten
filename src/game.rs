@@ -30,9 +30,6 @@ impl V2 {
             self * (1.0 / l)
         }
     }
-    pub fn lerp(self, o: V2, t: f32) -> V2 {
-        self + (o - self) * t
-    }
 }
 
 impl Add for V2 {
@@ -56,30 +53,36 @@ impl Mul<f32> for V2 {
     }
 }
 
-/// The floor plan, in 640×480 screen pixels.
+/// The floor plan in centimeters, on the painted room's 15 by 10 meter floor:
+/// x runs west to east and y north (the kitchen wall) to south (the door).
+/// `art::stage` projects it onto the picture.
 pub mod floor {
     /// Middle of the carousel island.
-    pub const CX: f32 = 320.0;
-    pub const CY: f32 = 284.0;
-    /// Half the length of the island's straight sides.
-    pub const HALF: f32 = 140.0;
-    /// Radius of the belt's middle line around the straight spine.
-    pub const R: f32 = 58.0;
+    pub const CX: f32 = 750.0;
+    pub const CY: f32 = 500.0;
+    /// Half the length of the belt's straight sides.
+    pub const HALF: f32 = 318.0;
+    /// Radius of the belt's middle line at its ends.
+    pub const R: f32 = 86.0;
     /// Half the belt's width.
-    pub const BELT: f32 = 12.0;
-    /// Counter lip outside the belt.
-    pub const LIP: f32 = 10.0;
-    pub const OUTER: f32 = R + BELT + LIP;
-    /// Height of the counter's front face.
-    pub const SIDE: f32 = 16.0;
-    /// Where the visitor's feet may go.
-    pub const MIN_X: f32 = 26.0;
-    pub const MAX_X: f32 = 614.0;
-    pub const MIN_Y: f32 = 160.0;
-    pub const MAX_Y: f32 = 434.0;
-    pub const BODY: f32 = 10.0;
+    pub const BELT: f32 = 19.0;
+    /// From the belt's middle to the island's outer edge.
+    pub const RIM: f32 = 36.0;
+    pub const OUTER: f32 = R + RIM;
+    /// The island's height: food rides this high.
+    pub const COUNTER_H: f32 = 70.0;
+    /// Half the width of the visitor's feet.
+    pub const BODY: f32 = 30.0;
+    /// Where the feet may go: inside the walls of the cropped room.
+    pub const MIN_X: f32 = 205.0;
+    pub const MAX_X: f32 = 1295.0;
+    pub const MIN_Y: f32 = 40.0;
+    pub const MAX_Y: f32 = 968.0;
     /// Where the chef puts new plates on the belt: the middle of the far side.
     pub const SERVE_S: f32 = HALF;
+    /// Furniture in the way: the booth by the door and the yuzu tree, as (x, y, w, h).
+    pub const BOOTH: (f32, f32, f32, f32) = (190.0, 830.0, 210.0, 150.0);
+    pub const YUZU: (f32, f32, f32, f32) = (1190.0, 880.0, 90.0, 90.0);
 }
 
 use floor::*;
@@ -131,10 +134,26 @@ pub fn collide(p: V2) -> V2 {
     let d = p - spine;
     let dist = d.len();
     let n = if dist < 1e-3 { V2::new(0.0, 1.0) } else { d * (1.0 / dist) };
-    // The counter's front face hangs below its top, so keep clear of it too.
-    let min = OUTER + BODY + SIDE * n.y.max(0.0);
-    let p = if dist < min { spine + n * min } else { p };
+    let min = OUTER + BODY;
+    let mut p = if dist < min { spine + n * min } else { p };
+    for (x, y, w, h) in [BOOTH, YUZU] {
+        p = out_of_box(p, x - BODY, y - BODY, w + 2.0 * BODY, h + 2.0 * BODY);
+    }
     V2::new(p.x.clamp(MIN_X, MAX_X), p.y.clamp(MIN_Y, MAX_Y))
+}
+
+/// Pushes `p` out of a box through its nearest side.
+fn out_of_box(p: V2, x: f32, y: f32, w: f32, h: f32) -> V2 {
+    if p.x <= x || p.x >= x + w || p.y <= y || p.y >= y + h {
+        return p;
+    }
+    let sides = [
+        (p.x - x, V2::new(x, p.y)),
+        (x + w - p.x, V2::new(x + w, p.y)),
+        (p.y - y, V2::new(p.x, y)),
+        (y + h - p.y, V2::new(p.x, y + h)),
+    ];
+    sides.iter().min_by(|a, b| a.0.total_cmp(&b.0)).map_or(p, |s| s.1)
 }
 
 #[derive(Clone, Debug)]
@@ -242,7 +261,7 @@ impl Round {
             t: 0.0,
             plates: Vec::new(),
             player: Player {
-                pos: V2::new(CX, CY + OUTER + BODY + SIDE + 22.0),
+                pos: V2::new(CX, CY + OUTER + BODY + 90.0),
                 facing: Facing::Up,
                 walk: 0.0,
                 moving: false,
@@ -272,7 +291,7 @@ impl Round {
         // Open with plates already riding, spaced out ahead of the chef.
         let gap = RULES.belt_speed * RULES.serve_every;
         let mut s = SERVE_S;
-        for _ in 0..7 {
+        for _ in 0..11 {
             s -= gap;
             let dish = r.pick_dish();
             r.add_plate(dish, wrap(s), SERVE_S - s);
@@ -320,11 +339,11 @@ impl Round {
         if self.player.eating.is_some() || self.outcome.is_some() {
             return None;
         }
-        let hand = self.player.pos + V2::new(0.0, -10.0);
+        let hand = self.player.pos;
         self.plates
             .iter()
             .enumerate()
-            .filter(|(_, p)| p.leaving == 0.0 && p.age > 0.35)
+            .filter(|(_, p)| p.leaving == 0.0 && p.age > 1.0)
             .map(|(i, p)| (i, p.pos().dist(hand)))
             .filter(|(_, d)| *d < RULES.reach)
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -490,7 +509,7 @@ impl Round {
         self.max_fullness = self.max_fullness.max(self.fullness);
         self.eaten[dish] += 1;
         self.plates_eaten += 1;
-        let at = self.player.pos + V2::new(0.0, -40.0);
+        let at = self.player.pos;
         self.events.push(Event::Ate { dish, coins, combo: self.combo, at });
     }
 
@@ -539,9 +558,16 @@ impl Round {
         let room = RULES.red_line - 4.0 - self.fullness;
         let need = RULES.admission - self.coins;
         let worth = |d: &Dish| d.coins as f32 / d.fullness as f32 >= 0.75 || d.coins >= need;
+        // The belt moves before the bite, so any plate in reach may be the one taken.
+        let near: Vec<&Dish> = self
+            .plates
+            .iter()
+            .filter(|p| p.leaving == 0.0 && p.pos().dist(self.player.pos) < RULES.reach + 4.0)
+            .map(|p| &DISHES[p.dish])
+            .collect();
         if let Some(i) = self.reachable() {
             let d = &DISHES[self.plates[i].dish];
-            if (d.fullness as f32) <= room && worth(d) {
+            if (d.fullness as f32) <= room && worth(d) && near.iter().all(|n| (n.fullness as f32) <= room) {
                 return Controls { eat: true, ..Controls::default() };
             }
         }
@@ -557,15 +583,15 @@ impl Round {
             .map(|p| {
                 let eta = p.pos().dist(me) / RULES.walk;
                 let (at, n) = belt_point(p.s + RULES.belt_speed * (eta + 0.4));
-                let stand = collide(at + n * (BELT + LIP + BODY + 4.0));
+                let stand = collide(at + n * (RIM + BODY + 6.0));
                 let d = &DISHES[p.dish];
-                let score = d.coins as f32 / d.fullness as f32 - stand.dist(me) * 0.004;
+                let score = d.coins as f32 / d.fullness as f32 - stand.dist(me) * 0.0012;
                 (score, stand)
             })
             .max_by(|a, b| a.0.total_cmp(&b.0));
         let Some((_, target)) = best else { return Controls::default() };
         let d = target - me;
-        if d.len() < 3.0 {
+        if d.len() < 8.0 {
             return Controls::default();
         }
         let v = d.norm();
@@ -592,8 +618,8 @@ mod tests {
 
     #[test]
     fn visitor_stays_off_the_island() {
-        for x in (0..64).map(|i| i as f32 * 10.0) {
-            for y in (0..48).map(|i| i as f32 * 10.0) {
+        for x in (0..75).map(|i| i as f32 * 20.0) {
+            for y in (0..50).map(|i| i as f32 * 20.0) {
                 let p = collide(V2::new(x, y));
                 let spine = V2::new(p.x.clamp(CX - HALF, CX + HALF), CY);
                 assert!(p.dist(spine) >= OUTER + BODY - 0.01, "{p:?}");

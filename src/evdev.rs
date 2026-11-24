@@ -135,7 +135,8 @@ impl Device {
         if unsafe { libc::ioctl(raw, eviocg(0x20 + EV_KEY as u64, keys.len()) as _, keys.as_mut_ptr()) } < 0 {
             return None;
         }
-        let gamepad = (BTN_SOUTH..=BTN_THUMBR).any(|b| bit(&keys, b)) || (BTN_DPAD_UP..=BTN_DPAD_RIGHT).any(|b| bit(&keys, b));
+        let gamepad =
+            (BTN_SOUTH..=BTN_THUMBR).any(|b| bit(&keys, b)) || (BTN_DPAD_UP..=BTN_DPAD_RIGHT).any(|b| bit(&keys, b));
         let extra = [KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_POWER].iter().any(|&k| bit(&keys, k));
         // Keyboards are raylib's.
         if bit(&keys, KEY_A) || !(gamepad || extra) {
@@ -143,9 +144,7 @@ impl Device {
         }
         let mut name = [0u8; 256];
         unsafe { libc::ioctl(raw, eviocg(0x06, name.len() - 1) as _, name.as_mut_ptr()) };
-        let name = CStr::from_bytes_until_nul(&name)
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let name = CStr::from_bytes_until_nul(&name).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let mut abs_bits = [0u8; ABS_CNT / 8];
         unsafe { libc::ioctl(raw, eviocg(0x20 + EV_ABS as u64, abs_bits.len()) as _, abs_bits.as_mut_ptr()) };
         let mut abs = [Abs::default(); ABS_CNT];

@@ -146,10 +146,6 @@ pub fn ring(x: f32, y: f32, r0: f32, r1: f32, a0: f32, a1: f32, c: Color) {
     unsafe { ffi::DrawRing(v(x, y), r0, r1, a0, a1, segs(r1) * 2, c) }
 }
 
-pub fn sector(x: f32, y: f32, r: f32, a0: f32, a1: f32, c: Color) {
-    unsafe { ffi::DrawCircleSector(v(x, y), r, a0, a1, segs(r) * 2, c) }
-}
-
 pub fn line(x1: f32, y1: f32, x2: f32, y2: f32, thick: f32, c: Color) {
     unsafe { ffi::DrawLineEx(v(x1, y1), v(x2, y2), thick, c) }
 }
@@ -215,7 +211,14 @@ struct Fonts {
 fn load(px: i32, chars: &BTreeSet<i32>) -> Font {
     let cps: Vec<i32> = chars.iter().copied().collect();
     unsafe {
-        let f = ffi::LoadFontFromMemory(c".otf".as_ptr(), FONT.as_ptr(), FONT.len() as i32, px, cps.as_ptr(), cps.len() as i32);
+        let f = ffi::LoadFontFromMemory(
+            c".otf".as_ptr(),
+            FONT.as_ptr(),
+            FONT.len() as i32,
+            px,
+            cps.as_ptr(),
+            cps.len() as i32,
+        );
         ffi::SetTextureFilter(f.texture, ffi::TextureFilter::TEXTURE_FILTER_BILINEAR as i32);
         f
     }
@@ -245,11 +248,8 @@ impl Fonts {
     /// The font for `size` canvas pixels holding `s`'s characters, as far as it can this frame.
     fn get(&mut self, size: f32, s: &str) -> Font {
         let px = ((size * self.px / 2.0).round() as i32 * 2).clamp(8, 240);
-        let a = self.atlases.entry(px).or_insert_with(|| Atlas {
-            chars: (32..127).collect(),
-            font: None,
-            dirty: false,
-        });
+        let a =
+            self.atlases.entry(px).or_insert_with(|| Atlas { chars: (32..127).collect(), font: None, dirty: false });
         for ch in s.chars() {
             if a.chars.insert(ch as i32) {
                 a.dirty = true;
@@ -292,9 +292,27 @@ pub fn text(s: &str, x: f32, y: f32, size: f32, color: Color, align: Align) -> f
 }
 
 /// Text with a solid outline, for titles and numbers over busy scenes.
-pub fn text_outlined(s: &str, x: f32, y: f32, size: f32, color: Color, outline: Color, thick: f32, align: Align) -> f32 {
+pub fn text_outlined(
+    s: &str,
+    x: f32,
+    y: f32,
+    size: f32,
+    color: Color,
+    outline: Color,
+    thick: f32,
+    align: Align,
+) -> f32 {
     let d = thick;
-    for (dx, dy) in [(-d, 0.0), (d, 0.0), (0.0, -d), (0.0, d), (-d * 0.7, -d * 0.7), (d * 0.7, -d * 0.7), (-d * 0.7, d * 0.7), (d * 0.7, d * 0.7)] {
+    for (dx, dy) in [
+        (-d, 0.0),
+        (d, 0.0),
+        (0.0, -d),
+        (0.0, d),
+        (-d * 0.7, -d * 0.7),
+        (d * 0.7, -d * 0.7),
+        (-d * 0.7, d * 0.7),
+        (d * 0.7, d * 0.7),
+    ] {
         text(s, x + dx, y + dy, size, outline, align);
     }
     text(s, x, y, size, color, align)
@@ -306,11 +324,8 @@ pub fn text_wrapped(s: &str, x: f32, y: f32, w: f32, size: f32, line_h: f32, col
     let mut lines: Vec<String> = Vec::new();
     let mut cur = String::new();
     let cjk = s.chars().any(|c| c as u32 >= 0x2E80);
-    let pieces: Vec<String> = if cjk {
-        s.chars().map(String::from).collect()
-    } else {
-        s.split(' ').map(|p| format!("{p} ")).collect()
-    };
+    let pieces: Vec<String> =
+        if cjk { s.chars().map(String::from).collect() } else { s.split(' ').map(|p| format!("{p} ")).collect() };
     for p in pieces {
         let trial = format!("{cur}{p}");
         if !cur.is_empty() && measure(trial.trim_end(), size) > w {
@@ -332,4 +347,35 @@ pub fn text_wrapped(s: &str, x: f32, y: f32, w: f32, size: f32, line_h: f32, col
         text(l, ax, y + i as f32 * line_h, size, color, align);
     }
     lines.len() as f32 * line_h
+}
+
+// ---- Textures ----------------------------------------------------------
+
+pub const WHITE: Color = rgb(0xFFFFFF);
+
+/// Draws part of a texture into a rectangle; a negative source width mirrors it.
+pub fn tex(
+    t: raylib_sys::Texture2D,
+    src: (f32, f32, f32, f32),
+    dst: (f32, f32, f32, f32),
+    origin: (f32, f32),
+    tint: Color,
+) {
+    unsafe {
+        ffi::DrawTexturePro(
+            t,
+            Rectangle { x: src.0, y: src.1, width: src.2, height: src.3 },
+            Rectangle { x: dst.0, y: dst.1, width: dst.2, height: dst.3 },
+            v(origin.0, origin.1),
+            0.0,
+            tint,
+        )
+    }
+}
+
+/// Draws what `f` draws with additive blending, for light.
+pub fn additive(f: impl FnOnce()) {
+    unsafe { ffi::BeginBlendMode(ffi::BlendMode::BLEND_ADDITIVE as i32) };
+    f();
+    unsafe { ffi::EndBlendMode() };
 }

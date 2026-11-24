@@ -2,7 +2,7 @@
 
 A reverse cooking game. Nobody cooks: you are the customer. You pay admission at the door, and before the restaurant closes you must finish its eating task, such as eating your money's worth or tasting every dish. Each restaurant eats differently and has its own cards to collect. A stomach gauge keeps greed honest: past its limit a short countdown starts, and if you stay there you go to hospital.
 
-Everything here is original: the restaurants, the visitor 小馋, the chef, the look and the cards. Nothing comes from Overcooked or any other game. Rules and numbers for the sushi bar started from the user's earlier Buffet (GizOS) and Tidewheel Sushi, and were redesigned for this game.
+Everything here is original: the restaurants, the visitor, the look and the cards. Nothing comes from Overcooked or any other game. The sushi bar's paintings, sounds and starting numbers come from the same author's Tidewheel Sushi (and the GizOS Buffet before it), and were redesigned for this game.
 
 ## The core loop
 
@@ -22,7 +22,7 @@ The tension in every restaurant is the same: dense, valuable food against fillin
 
 | | Restaurant | Way of eating | Task | Status |
 | --- | --- | --- | --- | --- |
-| 1 | **Carousel Sushi · 转转寿司** | Walk round a counter island while plates ride a belt. Take the one in reach. Rim color tells the price. A chef serves new plates from the middle, and golden specials come out at set times. | Eat your money's worth: 120 coins. | **Playable** |
+| 1 | **Carousel Sushi · 转转寿司** | Walk round a counter island while plates ride a belt, and take the one in reach; a bubble names it and its worth. Golden specials come out at set times. | Eat your money's worth: 160 coins. | **Playable** |
 | 2 | **Bubbling Pot · 咕嘟火锅** | Drop ingredients into a shared pot, each with its own cooking time, and fish them out in time. Raw food is worth nothing and overcooked food is worth less. | Taste all 8 ingredients. | Planned |
 | 3 | **Steam Cart · 点心推车** | Carts roam the hall. Catch one and choose a steamer before it rolls on. | Collect 6 dim sum stamps. | Planned |
 | 4 | **Refill Noodles · 续面馆** | A server refills your small bowl as soon as it is empty. Hold A to slurp, and put the lid on to stop the refills. | Eat 30 bowls before closing. | Idea |
@@ -33,25 +33,25 @@ The tension in every restaurant is the same: dense, valuable food against fillin
 | Rule | Value |
 | --- | --- |
 | Meal length | 120 s |
-| Admission and task | 120 coins |
-| Digestion | 1.1% per second |
+| Admission and task | 160 coins |
+| Digestion | 1.0% per second |
 | Red line and countdown | 120%, 5 s |
-| Belt | 38 px/s; a lap takes about 24 s; plates leave after 1.6 laps |
-| Serving | One plate every 1.6 s while 54 px of belt is free behind the chef |
-| Golden plate | At 32 s and 78 s: 30 coins, 18% |
+| Belt | 70 cm/s on a 15×10 m floor; a lap takes about 26 s; plates leave after 1.6 laps |
+| Serving | One plate every 1.4 s while 112 cm of belt is free; new plates settle for 1 s before they can be taken |
+| Golden plate | At 32 s and 78 s, on a gold-glazed plate: 30 coins, 18% |
 | Combo | A different dish within 5 s adds 1 coin per link, up to 4 |
 
-| Dish | Rim | Coins | Fullness |
-| --- | --- | --- | --- |
-| Seared Salmon · 炙烤三文鱼握 | red | 18 | 22% |
-| Tuna Nigiri · 金枪鱼握 | red | 17 | 20% |
-| Shrimp Nigiri · 鲜虾握 | green | 13 | 17% |
-| Tamago Nigiri · 玉子烧握 | green | 10 | 18% |
-| Cucumber Maki · 黄瓜细卷 | white | 6 | 8% |
-| Inari Pocket · 豆皮寿司 | white | 7 | 16% |
-| Golden Ikura · 金盘鱼子军舰 | gold | 30 | 18% |
+| Dish | Coins | Fullness |
+| --- | --- | --- |
+| Seared Salmon · 炙烤三文鱼握 | 18 | 22% |
+| Tuna Nigiri · 金枪鱼握 | 17 | 20% |
+| Shrimp Nigiri · 鲜虾握 | 13 | 17% |
+| Tamago Nigiri · 玉子烧握 | 10 | 18% |
+| Cucumber Maki · 黄瓜细卷 | 6 | 8% |
+| Inari Pocket · 豆皮寿司 | 7 | 16% |
+| Golden Toro · 金盘大腹 (special) | 30 | 18% |
 
-Eating every plate in reach does not work: 120 coins at an average of about 0.8 coins per percent is roughly 150% of food, so a player has to pause to digest, choose value-dense plates and catch the golden ones. The autopilot test (`cargo test`) checks that the task is reachable without the hospital. All numbers live in `src/rules.rs`.
+Eating every plate in reach does not work: 160 coins at about one coin per percent is roughly 160% of food, so a player has to pause to digest, choose value-dense plates and catch the golden ones. The autopilot test (`cargo test`) checks that the task is reachable without the hospital. All numbers live in `src/rules.rs`.
 
 ## Cards
 
@@ -81,31 +81,27 @@ The A and B labels follow `GIZLET_SWAP_AB`. On a Mac: arrows or WASD; Space, Ent
 
 ## Layout at 640×480
 
-Everything is drawn on a 640×480 canvas, scaled to fit the screen with bars and never cropped. Text and controls stay inside the 16 px safe margin. Text is at least 16 px; numbers that matter during play are at least 20 px.
+The room is painted for a 1600×960 stage in a fixed, high three-quarter view. The game shows its middle 1280 columns at half size on the 640×480 canvas and moves the painted side walls in to frame them, so the R36S shows the whole floor with no bars. The canvas is scaled to fit any other screen, never cropped. Text and controls stay inside the 16 px safe margin, at least 15 px, and numbers that matter during play at least 24 px.
 
-| Band (y) | Contents |
+| Where | What |
 | --- | --- |
-| 0–48 | The task chip in the middle, over the back wall |
-| 0–136 | The back wall: price board, two lanterns, the kitchen pass with its noren, a window on the evening street; then the wainscot |
-| 136–436 | The floor. The counter island is centered at (320, 284), 440×160, with the belt round its top and the chef inside. 小馋 walks the floor all round it. Potted plants stand in the corners. |
-| 436–474 | The clock (left), the stomach gauge (middle) and the plate count (right), with the combo pill above the plate count |
+| Top | The back wall: the window, shelves of bowls and the kitchen noren |
+| Top right | The clock to closing, which turns red in the last 15 s |
+| Middle | The carousel island, its wooden top holding a tea tray and condiments; the booth by the door and the yuzu tree in the corners |
+| Over the plate in reach | Pulsing gold rings and a bubble naming the dish and its worth |
+| Bottom left | The task: coins eaten against admission, with a bar; the combo and its draining timer above |
+| Bottom right | Plates eaten and the stomach gauge from 0 to 150%: a notch at 100%, a marker and a dark red zone from 120%, and a ghost segment for the plate in reach, red when it would cross the line |
+| Danger | Red edges pulse slowly (1 Hz) and a countdown ring floats over the visitor |
 
-- **Top middle:** the task, coins eaten against admission, with a bar that fills.
-- **Bottom left:** a clock to closing, which turns red in the last 15 s.
-- **Bottom middle:** the stomach gauge from 0 to 150%, with a white notch at 100% and a hatched red zone from 120%. When a plate is in reach, a ghost segment shows what it would add, and turns red if it would cross the red line.
-- **Bottom right:** plates eaten, with the combo and its draining timer above.
-- **Over the plate in reach:** a pulsing ring and a bubble naming the dish and its worth.
-- **Danger:** red edges pulse slowly (never above 3 Hz) and a countdown ring floats over the visitor's head.
-
-The other screens: the **title** (the bouncing 吃吃吃 logo, with 小馋 eating at a table among circling plates), the **street** (restaurant tickets under string lights), the **bill** (new cards on the left, a paper receipt with a stamp on the right) and the **album** (a 4 + 3 grid of cards).
+The other screens: the **title** (the bouncing 吃吃吃 logo over the visitor at a table among circling plates), the **street** (restaurant tickets under string lights), the **bill** (new cards on the left, a paper receipt with a stamp on the right) and the **album** (a 4 + 3 grid of cards).
 
 ## Look and feel
 
-A warm evening palette: tomato red, mustard, mint and cream over honey wood and walnut, with ink-dark panels for the interface. Everything is drawn from shapes, with no image files, so it stays sharp at any window size and runs easily on the R36S's Mali-G31.
+Painted, warm and tactile: Tidewheel's honey wood, cream tiles, steel belt and glazed ceramics under late light, with deep teal and cream interface panels in the same palette. Cards, the street and the title screen are drawn from shapes in matching colors until they have paintings of their own.
 
-- **小馋**, the visitor: a small round eater in an orange hoodie and a bib, with a bun held by a pair of chopsticks. Their belly grows with fullness, their cheeks puff while chewing, their eyes turn to stars for golden plates and to crosses in the red zone.
-- **Motion:** plates pop onto the belt and fade back into the kitchen. Food arcs from the plate to the mouth. Crumbs fly, coins float up, the HUD bumps, the screen shakes a little, and cards flip. Lanterns swing, the noren sways and steam rises from the kitchen.
-- **Sound:** none yet. Confirm, bite, warning and fanfare effects are planned.
+- **The visitor:** the blue-haired visitor in a cream hoodie, with walking, reaching, biting and savoring frames. They hop as they walk, squash when they bite, grow rounder as they fill up, and flush red in the danger zone.
+- **Motion:** plates drop onto the belt and fade back to the kitchen. The bite arcs from the plate to the mouth, golden plates glow, crumbs fly, coins float up, the HUD bumps, the screen shakes a little, and cards turn over. Slats travel round the belt and light breathes across the floor.
+- **Sound:** Tidewheel's cues for admission, bites, the red zone, recovery, closing and the cards. Its music loop is not used yet.
 
 ## Platform
 

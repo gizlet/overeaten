@@ -128,6 +128,7 @@ impl App {
         self.paused = None;
         self.summary = None;
         let lang = self.lang;
+        crate::assets::play(|s| s.admission);
         self.fx.banner(tx::DIG_IN.get(lang), RESTAURANTS[0].task.get(lang), pal::MUSTARD, 2.2);
         self.go(Screen::Dining);
     }
@@ -172,7 +173,12 @@ impl App {
                 let after = s.t;
                 for (i, &card) in s.new_cards.clone().iter().enumerate() {
                     let flip = Summary::reveal_at(i) + 0.4;
+                    let turn = Summary::reveal_at(i) + 0.25;
+                    if before < turn && after >= turn {
+                        crate::assets::play(|s| s.card_flip);
+                    }
                     if before < flip && after >= flip {
+                        crate::assets::play(|s| s.card_reveal);
                         let (x, y) = crate::screens::rack_slot(i, s.new_cards.len());
                         self.fx.sparkles(x + 48.0, y + 67.0, rgb(CARDS[card].band), 12, 40.0);
                     }
@@ -265,17 +271,21 @@ impl App {
         }
 
         // Stomach rumbles: an occasional sweat drop when stuffed.
-        let p = round.player.pos;
+        let p = {
+            let (x, y) = crate::art::canvas(round.player.pos, 0.0);
+            crate::game::V2::new(x, y + 20.0)
+        };
         if round.fullness > RULES.capacity && ((self.t * 1.3).fract() < dt * 1.3) {
-            self.fx.sweat(p.x + 10.0, p.y - 50.0);
+            self.fx.sweat(p.x + 14.0, p.y - 76.0);
         }
 
-        let events: Vec<Event> = round.events.drain(..).collect();
+        let events: Vec<Event> = std::mem::take(&mut round.events);
         let outro = round.outcome.map(|o| (o, round.outro));
         for e in events {
             match e {
                 Event::Served { golden } => {
-                    let at = belt_point(game::floor::SERVE_S).0;
+                    let (x, y) = crate::art::canvas(belt_point(game::floor::SERVE_S).0, game::floor::COUNTER_H);
+                    let at = crate::game::V2::new(x, y);
                     if golden {
                         self.fx.banner(tx::GOLDEN.get(lang), tx::GOLDEN_SUB.get(lang), rgb(0xF4C430), 1.8);
                         self.fx.sparkles(at.x, at.y, rgb(0xFFE08A), 16, 26.0);
@@ -284,12 +294,20 @@ impl App {
                     }
                 }
                 Event::Ate { dish, coins, combo, at } => {
-                    let color = crate::screens::crumb_color(DISHES[dish].topping);
-                    self.fx.crumbs(at.x, at.y + 12.0, color, 7);
-                    self.fx.crumbs(at.x, at.y + 12.0, pal::RICE, 4);
+                    let (x, y) = crate::art::canvas(at, 0.0);
+                    let at = crate::game::V2::new(x, y - 50.0);
+                    self.fx.crumbs(at.x, at.y + 12.0, rgb(DISHES[dish].crumb), 7);
+                    self.fx.crumbs(at.x, at.y + 12.0, rgb(0xFFFDF5), 4);
+                    crate::assets::play(|s| s.bite);
                     self.fx.float(at.x, at.y - 10.0, format!("+{coins}"), pal::MUSTARD, 24.0);
                     if combo >= 2 {
-                        self.fx.float(at.x, at.y - 34.0, format!("{} ×{combo}", tx::COMBO.get(lang)), rgb(0xFF8FA3), 18.0);
+                        self.fx.float(
+                            at.x,
+                            at.y - 34.0,
+                            format!("{} ×{combo}", tx::COMBO.get(lang)),
+                            rgb(0xFF8FA3),
+                            18.0,
+                        );
                     }
                     if dish == GOLDEN {
                         self.fx.hearts(at.x, at.y, 5);
@@ -300,16 +318,19 @@ impl App {
                     self.fx.shake(0.18);
                 }
                 Event::Full => {
-                    self.fx.float(p.x, p.y - 70.0, tx::FULL.get(lang).into(), rgb(0xFFB45E), 20.0);
+                    self.fx.float(p.x, p.y - 96.0, tx::FULL.get(lang).into(), rgb(0xFFB45E), 20.0);
                 }
                 Event::Danger => {
+                    crate::assets::play(|s| s.red);
                     self.fx.banner(tx::DANGER.get(lang), tx::DANGER_SUB.get(lang), rgb(0xFF6B6B), 2.0);
                     self.fx.shake(0.6);
                 }
                 Event::Recovered => {
-                    self.fx.float(p.x, p.y - 70.0, tx::PHEW.get(lang).into(), pal::MINT, 20.0);
+                    crate::assets::play(|s| s.recover);
+                    self.fx.float(p.x, p.y - 96.0, tx::PHEW.get(lang).into(), pal::MINT, 20.0);
                 }
                 Event::Outcome(o) => {
+                    crate::assets::play(|s| s.closing);
                     let (title, sub, color) = match o {
                         Outcome::Done => (tx::DONE, tx::DONE_SUB, pal::MUSTARD),
                         Outcome::Closed => (tx::CLOSED, tx::CLOSED_SUB, pal::CREAM),
@@ -317,8 +338,8 @@ impl App {
                     };
                     self.fx.banner(title.get(lang), sub.get(lang), color, 2.4);
                     if o == Outcome::Done {
-                        self.fx.sparkles(p.x, p.y - 30.0, pal::MUSTARD, 24, 60.0);
-                        self.fx.hearts(p.x, p.y - 50.0, 6);
+                        self.fx.sparkles(p.x, p.y - 50.0, pal::MUSTARD, 24, 60.0);
+                        self.fx.hearts(p.x, p.y - 70.0, 6);
                     } else {
                         self.fx.shake(0.5);
                     }

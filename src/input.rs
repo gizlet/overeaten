@@ -178,7 +178,8 @@ impl Controls {
             self.held[i] = if self.cur[*d as usize] { before + dt } else { 0.0 };
             let first = 0.38;
             let every = 0.11;
-            self.repeat[i] = before >= first && ((before - first) / every).floor() != ((self.held[i] - first) / every).floor();
+            self.repeat[i] =
+                before >= first && ((before - first) / every).floor() != ((self.held[i] - first) / every).floor();
         }
     }
 

@@ -26,31 +26,12 @@ impl Text {
     }
 }
 
-/// How a dish is drawn.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Topping {
-    Salmon,
-    Tuna,
-    Shrimp,
-    Tamago,
-    Maki,
-    Inari,
-    Ikura,
-}
-
-/// Plate rims tell the price at a glance.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Rim {
-    White,
-    Green,
-    Red,
-    Gold,
-}
-
 pub struct Dish {
     pub name: Text,
-    pub topping: Topping,
-    pub rim: Rim,
+    /// File stem of its paintings in `assets/art/dishes/*/`.
+    pub art: &'static str,
+    /// Color of the crumbs it leaves, `0xRRGGBB`.
+    pub crumb: u32,
     /// What the dish is worth toward the task.
     pub coins: i32,
     /// Percent of a full stomach.
@@ -67,56 +48,56 @@ pub const GOLDEN: usize = 6;
 pub const DISHES: [Dish; KINDS] = [
     Dish {
         name: Text::new("炙烤三文鱼握", "Seared Salmon"),
-        topping: Topping::Salmon,
-        rim: Rim::Red,
+        art: "salmon",
+        crumb: 0xF4845F,
         coins: 18,
         fullness: 22,
         weight: 3,
     },
     Dish {
         name: Text::new("金枪鱼握", "Tuna Nigiri"),
-        topping: Topping::Tuna,
-        rim: Rim::Red,
+        art: "tuna",
+        crumb: 0xC8303F,
         coins: 17,
         fullness: 20,
         weight: 3,
     },
     Dish {
         name: Text::new("鲜虾握", "Shrimp Nigiri"),
-        topping: Topping::Shrimp,
-        rim: Rim::Green,
+        art: "shrimp",
+        crumb: 0xFF9A5C,
         coins: 13,
         fullness: 17,
         weight: 3,
     },
     Dish {
         name: Text::new("玉子烧握", "Tamago Nigiri"),
-        topping: Topping::Tamago,
-        rim: Rim::Green,
+        art: "tamago",
+        crumb: 0xF7CF4E,
         coins: 10,
         fullness: 18,
         weight: 3,
     },
     Dish {
         name: Text::new("黄瓜细卷", "Cucumber Maki"),
-        topping: Topping::Maki,
-        rim: Rim::White,
+        art: "maki",
+        crumb: 0x6BBF59,
         coins: 6,
         fullness: 8,
         weight: 3,
     },
     Dish {
         name: Text::new("豆皮寿司", "Inari Pocket"),
-        topping: Topping::Inari,
-        rim: Rim::White,
+        art: "inari",
+        crumb: 0xD4924F,
         coins: 7,
         fullness: 16,
         weight: 2,
     },
     Dish {
-        name: Text::new("金盘鱼子军舰", "Golden Ikura"),
-        topping: Topping::Ikura,
-        rim: Rim::Gold,
+        name: Text::new("金盘大腹", "Golden Toro"),
+        art: "tuna",
+        crumb: 0xF4C430,
         coins: 30,
         fullness: 18,
         weight: 0,
@@ -143,7 +124,7 @@ pub struct Rules {
     pub eat_s: f32,
     /// When in `eat_s` the food is in the mouth and counts.
     pub bite_s: f32,
-    /// Belt speed in pixels per second.
+    /// Belt speed in centimeters per second.
     pub belt_speed: f32,
     /// Seconds between plates from the chef.
     pub serve_every: f32,
@@ -153,29 +134,29 @@ pub struct Rules {
     pub laps: f32,
     /// When golden specials are served.
     pub golden_at: [f32; 2],
-    /// Walking speed in pixels per second.
+    /// Walking speed in centimeters per second.
     pub walk: f32,
-    /// Distance from the hand within which a plate can be taken.
+    /// Distance from the feet within which a plate can be taken, in centimeters.
     pub reach: f32,
 }
 
 pub const RULES: Rules = Rules {
     duration: 120.0,
-    admission: 120,
+    admission: 160,
     capacity: 100.0,
     red_line: 120.0,
     hospital_s: 5.0,
-    digest: 1.1,
+    digest: 1.0,
     combo_window: 5.0,
     eat_s: 0.85,
     bite_s: 0.32,
-    belt_speed: 38.0,
-    serve_every: 1.6,
-    min_gap: 54.0,
+    belt_speed: 70.0,
+    serve_every: 1.4,
+    min_gap: 112.0,
     laps: 1.6,
     golden_at: [32.0, 78.0],
-    walk: 112.0,
-    reach: 50.0,
+    walk: 380.0,
+    reach: 112.0,
 };
 
 /// A restaurant on the street. Only the first is open in this version.
@@ -195,8 +176,8 @@ pub const RESTAURANTS: [Restaurant; 3] = [
     Restaurant {
         name: Text::new("转转寿司", "Carousel Sushi"),
         way: Text::new("从转台上抓盘子吃", "Grab plates off the belt"),
-        task: Text::new("吃回本：吃够 120 币", "Eat 120 coins' worth"),
-        admission: 120,
+        task: Text::new("吃回本：吃够 160 币", "Eat 160 coins' worth"),
+        admission: 160,
         open: true,
         accent: 0xE4572E,
     },

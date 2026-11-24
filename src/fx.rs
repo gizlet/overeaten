@@ -126,7 +126,8 @@ impl Fx {
 
     pub fn crumbs(&mut self, x: f32, y: f32, color: Color, n: usize) {
         for _ in 0..n {
-            let (vx, vy, life, size) = (self.spread(70.0), -60.0 - self.rand() * 90.0, 0.45 + self.rand() * 0.3, 1.2 + self.rand() * 1.6);
+            let (vx, vy, life, size) =
+                (self.spread(70.0), -60.0 - self.rand() * 90.0, 0.45 + self.rand() * 0.3, 1.2 + self.rand() * 1.6);
             self.parts.push(Particle { x, y, vx, vy, life: 0.0, max: life, size, kind: Kind::Crumb, color });
         }
     }
@@ -134,20 +135,51 @@ impl Fx {
     pub fn sparkles(&mut self, x: f32, y: f32, color: Color, n: usize, spread: f32) {
         for _ in 0..n {
             let (dx, dy) = (self.spread(spread), self.spread(spread * 0.7));
-            let (vx, vy, max, size) = (self.spread(20.0), -20.0 - self.rand() * 30.0, 0.5 + self.rand() * 0.5, 2.5 + self.rand() * 2.5);
-            self.parts.push(Particle { x: x + dx, y: y + dy, vx, vy, life: 0.0, max, size, kind: Kind::Sparkle, color });
+            let (vx, vy, max, size) =
+                (self.spread(20.0), -20.0 - self.rand() * 30.0, 0.5 + self.rand() * 0.5, 2.5 + self.rand() * 2.5);
+            self.parts.push(Particle {
+                x: x + dx,
+                y: y + dy,
+                vx,
+                vy,
+                life: 0.0,
+                max,
+                size,
+                kind: Kind::Sparkle,
+                color,
+            });
         }
     }
 
     pub fn sweat(&mut self, x: f32, y: f32) {
         let vx = self.spread(30.0) + 20.0;
-        self.parts.push(Particle { x, y, vx, vy: -70.0, life: 0.0, max: 0.6, size: 3.0, kind: Kind::Sweat, color: rgb(0x7EC8E3) });
+        self.parts.push(Particle {
+            x,
+            y,
+            vx,
+            vy: -70.0,
+            life: 0.0,
+            max: 0.6,
+            size: 3.0,
+            kind: Kind::Sweat,
+            color: rgb(0x7EC8E3),
+        });
     }
 
     pub fn hearts(&mut self, x: f32, y: f32, n: usize) {
         for _ in 0..n {
             let (vx, vy) = (self.spread(40.0), -50.0 - self.rand() * 30.0);
-            self.parts.push(Particle { x, y, vx, vy, life: 0.0, max: 0.9, size: 4.0, kind: Kind::Heart, color: rgb(0xFF6B81) });
+            self.parts.push(Particle {
+                x,
+                y,
+                vx,
+                vy,
+                life: 0.0,
+                max: 0.9,
+                size: 4.0,
+                kind: Kind::Heart,
+                color: rgb(0xFF6B81),
+            });
         }
     }
 
@@ -155,7 +187,17 @@ impl Fx {
         for _ in 0..n {
             let (vx, vy) = (self.spread(60.0), self.spread(25.0) - 10.0);
             let size = 5.0 + self.rand() * 4.0;
-            self.parts.push(Particle { x, y, vx, vy, life: 0.0, max: 0.5, size, kind: Kind::Puff, color: rgb(0xFFF7EC) });
+            self.parts.push(Particle {
+                x,
+                y,
+                vx,
+                vy,
+                life: 0.0,
+                max: 0.5,
+                size,
+                kind: Kind::Puff,
+                color: rgb(0xFFF7EC),
+            });
         }
     }
 
@@ -175,7 +217,12 @@ impl Fx {
                 Kind::Crumb => gfx::circle(p.x, p.y, p.size, fade(p.color, a)),
                 Kind::Sweat => {
                     gfx::circle(p.x, p.y, p.size, fade(p.color, a));
-                    gfx::tri((p.x - p.size * 0.9, p.y - 0.5), (p.x + p.size * 0.9, p.y - 0.5), (p.x, p.y - p.size * 2.4), fade(p.color, a));
+                    gfx::tri(
+                        (p.x - p.size * 0.9, p.y - 0.5),
+                        (p.x + p.size * 0.9, p.y - 0.5),
+                        (p.x, p.y - p.size * 2.4),
+                        fade(p.color, a),
+                    );
                 }
                 Kind::Sparkle => star(p.x, p.y, p.size * (1.0 - k * 0.5), fade(p.color, a)),
                 Kind::Heart => heart(p.x, p.y, p.size * (0.6 + k * 0.6), fade(p.color, a)),
@@ -187,7 +234,16 @@ impl Fx {
             let pop = gfx::ease_back((f.life / 0.18).min(1.0));
             let a = if k > 0.7 { 1.0 - (k - 0.7) / 0.3 } else { 1.0 };
             let size = f.size * (0.6 + 0.4 * pop);
-            gfx::text_outlined(&f.text, f.x, f.y - size / 2.0, size, fade(f.color, a), fade(rgb(0x2B2D42), a), 2.0, Align::Center);
+            gfx::text_outlined(
+                &f.text,
+                f.x,
+                f.y - size / 2.0,
+                size,
+                fade(f.color, a),
+                fade(rgb(0x2B2D42), a),
+                2.0,
+                Align::Center,
+            );
         }
     }
 
@@ -201,7 +257,16 @@ impl Fx {
         gfx::rrect(320.0 - w / 2.0, y - 8.0, w, 84.0, 18.0, fade(rgb(0x2B2D42), 0.82 * a));
         gfx::rrect_lines(320.0 - w / 2.0 + 4.0, y - 4.0, w - 8.0, 76.0, 15.0, 2.0, fade(b.color, 0.9 * a));
         let size = 40.0 * (0.5 + 0.5 * inn);
-        gfx::text_outlined(&b.title, 320.0, y + 2.0 + (40.0 - size) / 2.0, size, fade(b.color, a), fade(rgb(0x2B2D42), a), 2.5, Align::Center);
+        gfx::text_outlined(
+            &b.title,
+            320.0,
+            y + 2.0 + (40.0 - size) / 2.0,
+            size,
+            fade(b.color, a),
+            fade(rgb(0x2B2D42), a),
+            2.5,
+            Align::Center,
+        );
         if !b.sub.is_empty() {
             gfx::text(&b.sub, 320.0, y + 48.0, 18.0, fade(rgb(0xFFF4E0), a), Align::Center);
         }

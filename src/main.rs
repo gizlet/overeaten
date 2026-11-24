@@ -14,6 +14,7 @@
 
 mod app;
 mod art;
+mod assets;
 #[cfg(all(target_os = "linux", feature = "gizlet-os"))]
 mod evdev;
 mod fx;
@@ -65,6 +66,18 @@ fn main() {
         if !KMS {
             ffi::SetWindowMinSize(320, 240);
         }
+    }
+    // Sound is a bonus: a device without audio still plays.
+    let audio = capture.is_none()
+        && std::env::var("OVEREATEN_MUTE").map_or(true, |v| v != "1")
+        && unsafe {
+            ffi::InitAudioDevice();
+            ffi::IsAudioDeviceReady()
+        };
+    if let Err(e) = assets::load(audio) {
+        eprintln!("overeaten: {e}");
+        unsafe { ffi::CloseWindow() };
+        std::process::exit(1);
     }
 
     let mut controls = input::Controls::new();
