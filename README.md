@@ -10,9 +10,21 @@ The first restaurant, **Carousel Sushi · 转转寿司**, is playable. Walk roun
 | --- | --- | --- |
 | ![Title](docs/screenshots/title.png) | ![Bill](docs/screenshots/result.png) | ![Album](docs/screenshots/album.png) |
 
+## Getting the code
+
+Images, sounds and the font are stored with [Git LFS](https://git-lfs.com) (`.gitattributes`). Install it before cloning, or fetch them afterwards:
+
+```sh
+git lfs install
+git clone https://github.com/gizlet/overeaten.git
+git lfs pull    # only if the clone was made without Git LFS
+```
+
+Without them the build fails on the font and the game cannot load its art.
+
 ## Play on a Mac
 
-Requirements: [rustup](https://rustup.rs) and CMake (raylib-sys builds raylib for the desktop).
+Requirements: [rustup](https://rustup.rs), CMake (raylib-sys builds raylib for the desktop) and Git LFS.
 
 ```sh
 cargo run --release
