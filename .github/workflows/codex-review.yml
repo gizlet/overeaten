@@ -1,0 +1,48 @@
+name: Codex review
+
+# Reviews the pull-request diff with Codex and reports the `Codex Code Review`
+# check. triage.yml starts it automatically; a user with write access reruns it
+# by commenting `/codex-review`. Runs on GitHub-hosted runners and never
+# executes pull-request code. See https://github.com/gizlet/.github.
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Open pull request to review.
+        required: true
+        type: string
+      head_sha:
+        description: Expected pull-request head, set by automatic triggers.
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.issue.pull_request && contains(github.event.comment.body, '/codex-review'))
+    concurrency:
+      group: codex-review-${{ github.event.issue.number || inputs.pull_request_number }}
+      cancel-in-progress: false
+    permissions:
+      checks: write
+      contents: read
+      issues: write
+      pull-requests: write
+    uses: gizlet/.github/.github/workflows/codex-review.yml@latest
+    with:
+      pull_request_number: ${{ inputs.pull_request_number }}
+      head_sha: ${{ inputs.head_sha }}
+      review-instructions: >-
+        Overeaten is a game for Gizlet handhelds. Focus on gameplay logic
+        correctness, input handling, performance on low-end ARM hardware, and asset
+        or save-data regressions.
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

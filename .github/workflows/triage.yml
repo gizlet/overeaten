@@ -1,0 +1,26 @@
+name: PR triage
+
+# Decides whether a pull request may start CI automatically: open, not a draft,
+# and its branch is in this repository. If so, dispatches the listed workflows
+# on the default branch for the current head. Runs on a GitHub-hosted runner
+# and never checks out pull-request code. Other pull requests need `/test` or
+# `/codex-review` from a user with write access.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  trigger:
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: gizlet/.github/.github/workflows/pr-auto-trigger.yml@latest
+    with:
+      workflows: codex-review.yml
+      command: /test
