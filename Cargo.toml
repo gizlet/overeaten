@@ -1,0 +1,27 @@
+[package]
+name = "overeaten"
+description = "Overeaten · 吃吃吃: a reverse cooking game for Gizlet OS. You do the eating."
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.88"
+publish = false
+
+[[bin]]
+name = "overeaten"
+path = "src/main.rs"
+
+[features]
+# Gizlet OS: link Gizlet runtime 1's libraylib.so.600 (DRM, OpenGL ES 2)
+# instead of letting raylib-sys build a desktop raylib. See build.rs.
+gizlet-os = ["raylib-sys/nobuild"]
+
+[dependencies]
+raylib-sys = "6.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = "thin"
+strip = true
