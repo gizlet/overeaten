@@ -339,7 +339,16 @@ pub fn card_face(x: f32, y: f32, w: f32, h: f32, art: CardArt, band: Color, name
         }
     }
     card_art(art, ix + iw / 2.0, iy + ih / 2.0 + 2.0 * s, s, t);
-    gfx::text_wrapped(name, x + 6.0 * s, iy + ih + 8.0 * s, w - 12.0 * s, 15.0 * s, 18.0 * s, INK, Align::Center);
+    gfx::text_wrapped(
+        name,
+        x + 6.0 * s,
+        iy + ih + 8.0 * s,
+        w - 12.0 * s,
+        (15.0 * s).max(15.0),
+        (18.0 * s).max(18.0),
+        INK,
+        Align::Center,
+    );
 }
 
 /// A card's back, with a question mark for undiscovered cards.

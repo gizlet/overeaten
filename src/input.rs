@@ -51,7 +51,7 @@ impl RawPad {
     }
 }
 
-const KEYS: [(K, Button); 17] = [
+const KEYS: [(K, Button); 18] = [
     (K::KEY_UP, Button::Up),
     (K::KEY_W, Button::Up),
     (K::KEY_DOWN, Button::Down),
@@ -68,6 +68,7 @@ const KEYS: [(K, Button); 17] = [
     (K::KEY_I, Button::X),
     (K::KEY_U, Button::Y),
     (K::KEY_ESCAPE, Button::Start),
+    (K::KEY_P, Button::Start),
     (K::KEY_TAB, Button::Select),
 ];
 
