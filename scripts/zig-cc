@@ -1,0 +1,20 @@
+#!/bin/sh
+# A C compiler and linker for aarch64 Gizlet OS made from zig, so a Mac (or
+# any host with zig) can build the device binary. Rust's linux-gnu target
+# asks for libgcc_s, which zig replaces with its own libunwind. Libraries that
+# runtime 1's libraylib needs (EGL, GLES, GBM, DRM) exist only on the device,
+# so they are left unresolved here.
+args=""
+for a in "$@"; do
+    case "$a" in
+        -lgcc_s) args="$args
+-lunwind" ;;
+        -Wl,--fix-cortex-a53-843419 | -Wl,-O1 | --target=*) ;;
+        *) args="$args
+$a" ;;
+    esac
+done
+IFS='
+'
+# shellcheck disable=SC2086
+exec zig cc -target aarch64-linux-gnu.2.36 -Wl,--allow-shlib-undefined $args
