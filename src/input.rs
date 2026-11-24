@@ -88,6 +88,20 @@ const PAD: [(G, Button); 12] = [
 
 const DIRS: [Button; 4] = [Button::Up, Button::Down, Button::Left, Button::Right];
 
+/// Menu auto-repeat for one direction: how long it has now been held, and
+/// whether it repeats this frame. It repeats only while still held, first
+/// after 0.38 s and then every 0.11 s.
+fn repeat(held: f32, down: bool, dt: f32) -> (f32, bool) {
+    const FIRST: f32 = 0.38;
+    const EVERY: f32 = 0.11;
+    if !down {
+        return (0.0, false);
+    }
+    let now = held + dt;
+    let fires = held >= FIRST && ((held - FIRST) / EVERY).floor() != ((now - FIRST) / EVERY).floor();
+    (now, fires)
+}
+
 pub struct Controls {
     cur: [bool; BUTTONS],
     prev: [bool; BUTTONS],
@@ -174,12 +188,7 @@ impl Controls {
         self.prev = self.cur;
         self.cur = pad.buttons;
         for (i, d) in DIRS.iter().enumerate() {
-            let before = self.held[i];
-            self.held[i] = if self.cur[*d as usize] { before + dt } else { 0.0 };
-            let first = 0.38;
-            let every = 0.11;
-            self.repeat[i] =
-                before >= first && ((before - first) / every).floor() != ((self.held[i] - first) / every).floor();
+            (self.held[i], self.repeat[i]) = repeat(self.held[i], self.cur[*d as usize], dt);
         }
     }
 
@@ -234,5 +243,29 @@ impl Controls {
             (Button::Select, _) => "Select",
             _ => "",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repeat;
+
+    /// Counts repeats over `frames` held frames, then one released frame.
+    fn run(frames: usize) -> (usize, bool) {
+        let (mut held, mut n) = (0.0, 0);
+        for _ in 0..frames {
+            let (h, fires) = repeat(held, true, 1.0 / 60.0);
+            held = h;
+            n += fires as usize;
+        }
+        (n, repeat(held, false, 1.0 / 60.0).1)
+    }
+
+    #[test]
+    fn repeats_while_held_only() {
+        assert_eq!(run(20).0, 0, "no repeat before 0.38 s");
+        let (n, on_release) = run(60);
+        assert!((5..=6).contains(&n), "about one repeat per 0.11 s after 0.38 s, got {n}");
+        assert!(!on_release, "releasing a held direction must not step the menu");
     }
 }
