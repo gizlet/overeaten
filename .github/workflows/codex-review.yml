@@ -43,6 +43,9 @@ jobs:
       review-instructions: >-
         Overeaten is a game for Gizlet handhelds. Focus on gameplay logic
         correctness, input handling, performance on low-end ARM hardware, and asset
-        or save-data regressions.
+        or save-data regressions. Images, sounds and the font are Git LFS files
+        (.gitattributes covers *.png, *.jpg, *.wav and *.otf), so the diff shows
+        only their pointers; that is expected and not a finding. Check that code
+        refers to asset paths that exist, not the binary contents.
     secrets:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
