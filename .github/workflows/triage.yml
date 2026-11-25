@@ -1,25 +1,28 @@
 name: PR triage
 
-# The only entry point for pull-request Codex review. A `/codex-review` comment
-# line from a user with write access dispatches codex-review.yml on main for
-# the pull request's current head; nothing runs on push. Runs on a
-# GitHub-hosted runner and never checks out pull-request code.
+# Starts pull-request Codex review with a comment. Opening, updating,
+# reopening or readying a pull request from a branch in this repository makes
+# gizlet-bot comment each command below on its own line, for the current head.
+# codex-review.yml listens to comments and starts from it; a writer's comment
+# with the same command runs one again. Runs on a GitHub-hosted runner and
+# never checks out pull-request code.
 
 on:
-  issue_comment:
-    types: [created]
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
   contents: read
 
 jobs:
   triage:
-    if: github.event.issue.pull_request && contains(github.event.comment.body, '/')
     permissions:
-      actions: write
       contents: read
-      pull-requests: write
+      pull-requests: read
     uses: gizlet/.github/.github/workflows/pr-triage.yml@latest
     with:
       commands: |
-        /codex-review=codex-review.yml
+        /codex-review
+      client-id: ${{ vars.GIZLET_BOT_CLIENT_ID }}
+    secrets:
+      GIZLET_BOT_PRIVATE_KEY: ${{ secrets.GIZLET_BOT_PRIVATE_KEY }}
