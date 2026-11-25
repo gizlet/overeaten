@@ -1,26 +1,25 @@
 name: PR triage
 
-# Decides whether a pull request may start CI automatically: open, not a draft,
-# and its branch is in this repository. If so, dispatches the listed workflows
-# on the default branch for the current head. Runs on a GitHub-hosted runner
-# and never checks out pull-request code. Other pull requests need `/test` or
-# `/codex-review` from a user with write access.
+# The only entry point for pull-request Codex review. A `/codex-review` comment
+# line from a user with write access dispatches codex-review.yml on main for
+# the pull request's current head; nothing runs on push. Runs on a
+# GitHub-hosted runner and never checks out pull-request code.
 
 on:
-  pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
 
 jobs:
-  trigger:
+  triage:
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '/')
     permissions:
       actions: write
       contents: read
-      issues: write
-      pull-requests: read
-    uses: gizlet/.github/.github/workflows/pr-auto-trigger.yml@latest
+      pull-requests: write
+    uses: gizlet/.github/.github/workflows/pr-triage.yml@latest
     with:
-      workflows: codex-review.yml
-      command: /test
+      commands: |
+        /codex-review=codex-review.yml
