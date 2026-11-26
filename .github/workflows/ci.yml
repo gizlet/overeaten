@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  issue_comment:
+    types: [created]
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request to run for; leave empty to run on the selected ref.
+        required: false
+        default: ''
+        type: string
+      head_sha:
+        description: Expected pull-request head; a moved head is skipped.
+        required: false
+        default: ''
+        type: string
+
+permissions: {}
+
+jobs:
+  start:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.pull_request_number != '')
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request
+          && contains(github.event.comment.body, '/ci'))
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: write
+    uses: gizlet/.github/.github/workflows/pr-check-start.yml@latest
+    with:
+      check-name: CI
+      command: /ci
+      pull_request_number: ${{ inputs.pull_request_number }}
+      head_sha: ${{ inputs.head_sha }}
+
+  package:
+    name: Test and package (ARM64)
+    needs: start
+    if: >-
+      !cancelled() && (
+        needs.start.outputs.run == 'true'
+        || (needs.start.result == 'skipped' && github.event_name != 'issue_comment'))
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    concurrency:
+      group: ci-${{ needs.start.outputs.number || github.run_id }}
+      cancel-in-progress: ${{ needs.start.outputs.number != '' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ needs.start.outputs.head_sha || github.sha }}
+          lfs: true
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: gizlet/os
+          ref: 3f37329e22f0c1052c000d79c960bd243a46e3b2
+          path: gizlet-os
+          persist-credentials: false
+      - name: Install build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            build-essential cmake libclang-dev libgl1-mesa-dev libx11-dev libxcursor-dev \
+            libxi-dev libxinerama-dev libxrandr-dev squashfs-tools uidmap
+          if ! unshare --user --mount --map-root-user true; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            unshare --user --mount --map-root-user true
+          fi
+          rustup target add aarch64-unknown-linux-gnu
+      - run: cargo test --locked
+      - uses: bazel-contrib/setup-bazel@f34d6a05eae3c24acab7fa54587492daeaeffdab
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+          cache-save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        with:
+          version: 0.17.1
+          use-cache: false
+      - name: Build Gizlet runtime raylib
+        working-directory: gizlet-os
+        run: bazel build --config=r36s //runtime:raylib
+      - name: Build and package
+        run: GIZLET_RAYLIB_LIB="$PWD/gizlet-os/bazel-bin/runtime" ./scripts/package.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gizlet-packages
+          path: dist/*.gzl
+          if-no-files-found: error
+          overwrite: true
+
+  release:
+    needs: package
+    if: >-
+      !cancelled() && needs.package.result == 'success' && (
+        (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag'))
+        || (github.event_name == 'workflow_dispatch' && github.ref_type == 'tag' && inputs.pull_request_number == ''))
+    permissions:
+      contents: write
+      id-token: write
+    uses: gizlet/.github/.github/workflows/store-release.yml@latest
+
+  finish:
+    if: always() && needs.start.outputs.run == 'true'
+    needs: [start, package]
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: write
+    uses: gizlet/.github/.github/workflows/pr-check-finish.yml@latest
+    with:
+      check_run_id: ${{ needs.start.outputs.check_run_id }}
+      comment_id: ${{ needs.start.outputs.comment_id }}
+      result: ${{ needs.package.result }}

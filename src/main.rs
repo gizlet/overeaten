@@ -41,7 +41,8 @@ fn env_size(name: &str) -> Option<(i32, i32)> {
 
 fn main() {
     if std::env::args().nth(1).as_deref() == Some("--version") {
-        println!("overeaten {}", env!("CARGO_PKG_VERSION"));
+        let version = option_env!("GIZLET_APP_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+        println!("overeaten {version}");
         return;
     }
     let capture = std::env::var("OVEREATEN_CAPTURE").ok();

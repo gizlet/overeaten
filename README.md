@@ -67,23 +67,29 @@ OVEREATEN_CAPTURE=$PWD/shots/dining.png OVEREATEN_SCENE=dining OVEREATEN_AT=14 \
 
 ## Run on Gizlet OS
 
-On the device the game links Gizlet runtime 1's `libraylib.so.600`, built for DRM with OpenGL ES 2, and reads the handheld's controls from evdev. `scripts/package.sh` cross-builds it from a Mac with zig as the linker and assembles the app folder.
+On the device the game links Gizlet runtime 1's `libraylib.so.600` and reads the handheld's controls from evdev. `scripts/package.sh` builds the application and writes its `.gzl` package.
 
-Requirements: [zig](https://ziglang.org), `rustup target add aarch64-unknown-linux-gnu`, and runtime 1's `libraylib.so`, built in [gizlet/os](https://github.com/gizlet/os) with `bazel build --config=r36s //runtime:raylib`.
+Install Python 3.11 or newer, [zig](https://ziglang.org), and the Rust `aarch64-unknown-linux-gnu` target. Build runtime 1's `libraylib.so` in [gizlet/os](https://github.com/gizlet/os) with `bazel build --config=r36s //runtime:raylib`.
 
 ```sh
-GIZLET_RAYLIB_LIB=/path/to/folder/with/libraylib.so scripts/package.sh   # dist/overeaten/
-scp -r dist/overeaten root@DEVICE:/tmp/
-ssh root@DEVICE gizlet run /tmp/overeaten        # or: gizlet install /tmp/overeaten
+GIZLET_RAYLIB_LIB=/path/to/folder/with/libraylib.so scripts/package.sh
+scp dist/io.gizlet.overeaten-0.1.1-aarch64-unknown-linux-gnu-lite.gzl root@DEVICE:/tmp/
+ssh root@DEVICE gizlet install /tmp/io.gizlet.overeaten-0.1.1-aarch64-unknown-linux-gnu-lite.gzl
 ```
 
 Hold Select + Start for two seconds to quit.
+
+## Release
+
+Change `version` in `gizlet.toml` and merge to `main`. CI tests and builds the
+ARM64 package, creates `v<version>`, publishes a GitHub Release, and waits for
+Gizlet Store validation. Rerun the original CI run to retry a failed release.
 
 ## Layout
 
 | Path | Holds |
 | --- | --- |
-| `gizlet.toml` | The app manifest: ID, version, names, runtime, `exec` and `icon` |
+| `gizlet.toml` | Store metadata and package declaration |
 | `src/main.rs` | The window, the frame loop and captures |
 | `src/app.rs` | Screens, input handling and turning meal events into effects |
 | `src/game.rs` | A meal's rules: the belt, the visitor, the stomach, the clock, cards earned and the autopilot |
@@ -97,7 +103,7 @@ Hold Select + Start for two seconds to quit.
 | `src/save.rs` | Cards and records in `GIZLET_SAVE_DIR/progress.txt` |
 | `src/text.rs` | Interface strings in Chinese and English |
 | `build.rs` | Links runtime 1's raylib with the `gizlet-os` feature |
-| `scripts/package.sh`, `scripts/zig-cc` | The device build and app folder |
+| `scripts/package.sh`, `scripts/pack.py`, `scripts/zig-cc` | The device build and `.gzl` packaging |
 | `assets/` | The paintings (`art/`), sounds (`audio/`), the font (bundled into the binary) and the icon |
 
 ## License
