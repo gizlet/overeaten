@@ -1,9 +1,8 @@
 #!/bin/sh
 # scripts/package.sh [OUT]: builds Overeaten for aarch64 Gizlet OS and
-# assembles the app folder that `gizlet install` takes (dist/overeaten by
-# default).
+# assembles the app folder (dist/overeaten by default) and its .gzl.
 #
-# Needs zig, the Rust target aarch64-unknown-linux-gnu and Gizlet runtime 1's
+# Needs Python 3.11+, zig, the Rust target aarch64-unknown-linux-gnu and Gizlet runtime 1's
 # libraylib.so: set GIZLET_RAYLIB_LIB to the folder holding it. gizlet/os
 # builds it with `bazel build --config=r36s //runtime:raylib`.
 set -eu
@@ -23,15 +22,14 @@ export CC_aarch64_unknown_linux_gnu="$root/scripts/zig-cc"
 export BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu="-isystem $inc/aarch64-linux-gnu -isystem $inc/generic-glibc -isystem $inc/any-linux-any"
 
 cd "$root"
-cargo build --release --locked --target "$target" --features gizlet-os
+version=$(python3 -c 'import tomllib; print(tomllib.load(open("gizlet.toml", "rb"))["version"])')
+GIZLET_APP_VERSION="$version" cargo build --release --locked --target "$target" --features gizlet-os
 
 rm -rf "$out"
 mkdir -p "$out/bin" "$out/licenses"
 cp "target/$target/release/overeaten" "$out/bin/overeaten"
-cp gizlet.toml "$out/gizlet.toml"
-cp assets/icon.png "$out/icon.png"
 mkdir -p "$out/assets"
 cp -R assets/art assets/audio "$out/assets/"
 cp LICENSE "$out/licenses/overeaten-MIT.txt"
 cp assets/fonts/noto_ofl.txt "$out/licenses/noto-sans-sc-OFL.txt"
-echo "$out"
+python3 scripts/pack.py "$out" "$target"

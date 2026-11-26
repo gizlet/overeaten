@@ -1,14 +1,21 @@
-# Overeaten's Gizlet app manifest. scripts/package.sh copies it to the root
-# of the app folder, so the paths below are relative to that folder. Keep
-# version in step with Cargo.toml.
 id = "io.gizlet.overeaten"
-version = "0.1.0"
+version = "0.1.1"
 name = "Overeaten"
-kind = "game"
+category = "game"
+description = "Grab dishes off a sushi conveyor belt, pace your appetite, and earn cards before the restaurant closes."
+tags = ["arcade", "food", "single-player"]
+color = "#B04B43"
+license = "MIT"
 runtime = 1
-arch = "aarch64"
-exec = "bin/overeaten"
-icon = "icon.png"
+icon = "assets/icon.png"
 
 [names]
 zh-CN = "吃吃吃"
+
+[descriptions]
+zh-CN = "从回转寿司传送带上拿菜，掌握进食节奏，在餐厅打烊前赢取卡牌。"
+
+[[packages]]
+target = "aarch64-unknown-linux-gnu"
+tier = "lite"
+entry = "bin/overeaten"
