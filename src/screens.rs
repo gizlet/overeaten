@@ -1,719 +1,826 @@
-//! Drawing each screen on the 640×480 canvas.
+//! Drawing each screen: the 3D layer in the canvas's viewport, then the 2D
+//! interface on the 640×480 canvas.
 
 use crate::app::{App, Screen, Summary};
-use crate::art::{self, pal::*, Pose};
-use crate::game::{floor::*, Facing, Outcome, Round};
-use crate::gfx::{self, ease_back, ease_out, fade, mix, rgb, rrect, Align};
+use crate::cards;
+use crate::game::{Outcome, Round};
+use crate::gfx::{self, ease_back, ease_out, fade, mix, rgb, rrect, Align, View};
+use crate::m3::{v3, M4};
+use crate::mesh::Builder;
+use crate::render::{begin3d, end3d, Camera, Lighting, Look};
 use crate::rules::*;
+use crate::tasks::{Goal, State};
 use crate::text as tx;
-use raylib_sys::Color;
+use crate::ui::{self, pal::*};
+use raylib_sys::{self as ffi, Color, Mesh};
+use std::cell::OnceCell;
 use std::f32::consts::PI;
+
+thread_local! {
+    static STAGE: OnceCell<Mesh> = const { OnceCell::new() };
+}
+
+/// The framebuffer rectangle the canvas covers.
+fn canvas_rect(view: View, shake: (f32, f32)) -> (i32, i32, i32, i32, i32, i32) {
+    let (fw, fh) = unsafe {
+        if cfg!(target_os = "macos") {
+            (ffi::GetRenderWidth(), ffi::GetRenderHeight())
+        } else {
+            (ffi::GetScreenWidth(), ffi::GetScreenHeight())
+        }
+    };
+    let x = (view.ox + shake.0 * view.zoom).round() as i32;
+    let y = (view.oy + shake.1 * view.zoom).round() as i32;
+    (x, y, (gfx::W * view.zoom).round() as i32, (gfx::H * view.zoom).round() as i32, fw, fh)
+}
+
+/// The colour behind everything this frame.
+pub fn clear_color(app: &App) -> Color {
+    match app.screen {
+        Screen::Title | Screen::Levels | Screen::Dining | Screen::Result => app.scene.as_ref().map_or(INK, |s| s.clear),
+        _ => rgb(0x14141C),
+    }
+}
+
+/// The 2D backdrop drawn under the 3D layer.
+pub fn backdrop(app: &App) {
+    match app.screen {
+        Screen::Heroes => {
+            gfx::grad_v(0.0, 0.0, gfx::W, gfx::H, rgb(0x2B3A55), rgb(0x16152A));
+            for k in 0..3 {
+                let x = 130.0 + k as f32 * 190.0 + (app.t * 0.3 + k as f32).sin() * 20.0;
+                gfx::glow(x, 120.0, 220.0, fade(rgb(0x6C8EBF), 0.18));
+            }
+        }
+        Screen::Album => ui::dotted_backdrop(rgb(0x2F4858), rgb(0x1B2733), app.t),
+        _ => {}
+    }
+}
+
+/// The 3D layer.
+pub fn draw3d(app: &App, view: View) {
+    if app.icon {
+        return;
+    }
+    let (x, y, w, h, fw, fh) = canvas_rect(view, app.fx_offset());
+    match app.screen {
+        Screen::Title | Screen::Levels | Screen::Dining | Screen::Result => {
+            let (Some(sc), Some(r)) = (&app.scene, &app.round) else { return };
+            begin3d(&sc.cam, x, y, w, h, fh);
+            sc.draw(&app.gl, r, &app.heroes[r.hero], app.t);
+            end3d(fw, fh);
+        }
+        Screen::Heroes => {
+            let cam = Camera { eye: v3(0.0, 2.1, 8.4), target: v3(0.0, 0.62, 0.0), fovy: 0.6 };
+            begin3d(&cam, x, y, w, h, fh);
+            let mut light = Lighting::day();
+            light.sun_dir = v3(-0.3, 0.8, 0.6).norm();
+            let sel = app.hero_pos;
+            light.add_light(v3((sel - 1.5) * 1.55, 3.0, 1.0), 4.0, rgb(0xFFE7B0));
+            app.gl.light(&light, cam.eye);
+            let stage = STAGE.with(|s| {
+                *s.get_or_init(|| {
+                    let mut b = Builder::default();
+                    b.cylinder(v3(0.0, -0.2, 0.0), 1.0, 0.2, 40, rgb(0x8B5A3C), rgb(0xE2B98E));
+                    b.upload(false)
+                })
+            });
+            let a = crate::assets::get();
+            for i in 0..HEROES.len() {
+                let px = (i as f32 - 1.5) * 1.55;
+                let chosen = i == app.hero_sel;
+                let lift = if chosen { 0.08 } else { 0.0 };
+                let disc = M4::scale(0.62, 1.0, 0.62).then(&M4::translate(v3(px, lift, 0.0)));
+                let wood = Some(a.texture(a.tex("counter")));
+                app.gl.draw(stage, wood, &disc, &Look { emissive: if chosen { 0.25 } else { 0.0 }, ..Look::default() });
+                let open = app.save.hero_unlocked(i);
+                let yaw = if chosen { (app.t * 0.6).sin() * 0.3 } else { (px * -0.25) + (app.t * 0.4 + i as f32).sin() * 0.1 };
+                let m = app.heroes[i].place(v3(px, lift, 0.0), yaw, HEROES[i].height);
+                let look = if open {
+                    Look { rim: if chosen { 1.0 } else { 0.4 }, ..Look::default() }
+                } else {
+                    Look { tint: (rgb(0x0E0D18), 0.9), rim: 0.8, ..Look::default() }
+                };
+                app.heroes[i].draw(&app.gl, &m, &look, if chosen { Some(2.0) } else { None });
+            }
+            end3d(fw, fh);
+        }
+        Screen::Album => {}
+    }
+}
 
 pub fn draw(app: &App) {
     if app.icon {
-        icon(app.t);
+        icon(app);
         return;
     }
     match app.screen {
         Screen::Title => title(app),
-        Screen::Street => street(app),
+        Screen::Heroes => heroes(app),
+        Screen::Levels => levels(app),
         Screen::Dining => dining(app),
         Screen::Result => result(app),
         Screen::Album => album(app),
+    }
+    app.fx.draw_banner();
+    if app.stats_on {
+        stats(app);
     }
     if app.fade > 0.0 {
         gfx::rect(0.0, 0.0, gfx::W, gfx::H, fade(INK, app.fade * app.fade));
     }
 }
 
-/// Button prompts along the bottom of the safe area, right-aligned.
-fn prompts(items: &[(&str, &str)], light: bool) {
-    let size = 24.0;
-    let (fill, ink, label) = if light { (CREAM, INK, CREAM) } else { (INK, CREAM, INK) };
-    let widths: Vec<f32> = items
-        .iter()
-        .map(|(b, a)| gfx::measure(b, size * 0.72).max(size * 0.5) + size * 0.55 + 6.0 + gfx::measure(a, 18.0))
-        .collect();
-    let total: f32 = widths.iter().sum::<f32>() + 18.0 * (items.len() as f32 - 1.0);
-    let mut x = 624.0 - total;
-    for ((b, a), w) in items.iter().zip(widths) {
-        let bw = art::button_badge(b, x, 444.0, size, fill, ink);
-        gfx::text(a, x + bw + 6.0, 446.0, 18.0, label, Align::Left);
-        x += w + 18.0;
+impl App {
+    pub fn fx_offset(&self) -> (f32, f32) {
+        self.fx.peek_offset()
     }
 }
 
-fn dotted_backdrop(top: Color, bottom: Color, t: f32) {
-    gfx::grad_v(0.0, 0.0, gfx::W, gfx::H, top, bottom);
-    let off = (t * 8.0).rem_euclid(32.0);
-    for row in -1..17 {
-        for col in -1..22 {
-            let x = col as f32 * 32.0 + off + if row % 2 == 0 { 0.0 } else { 16.0 };
-            let y = row as f32 * 32.0 + off;
-            gfx::circle(x, y, 2.2, fade(CREAM, 0.12));
+// ---- Title ---------------------------------------------------------------
+
+fn logo(app: &App, cx: f32, y: f32, size: f32) {
+    let t = app.t;
+    let name = app.tr(tx::TITLE);
+    let chars: Vec<char> = name.chars().collect();
+    let cjk = app.lang == Lang::Zh;
+    if cjk {
+        let step = size * 1.02;
+        let x0 = cx - step * (chars.len() as f32 - 1.0) / 2.0;
+        for (i, ch) in chars.iter().enumerate() {
+            let k = ((t * 3.2 - i as f32 * 0.5).sin()).max(0.0);
+            let x = x0 + i as f32 * step;
+            let yy = y - k * 10.0;
+            let s = ch.to_string();
+            let big = i >= 2;
+            let sz = if big { size } else { size * 0.78 };
+            let dy = if big { 0.0 } else { size * 0.2 };
+            gfx::text(&s, x + 4.0, yy + dy + 6.0, sz, fade(rgb(0x7A2416), 0.6), Align::Center);
+            gfx::text_outlined(&s, x, yy + dy, sz, if big { CREAM } else { MUSTARD }, INK, 4.0, Align::Center);
         }
+    } else {
+        gfx::text(name, cx + 4.0, y + 6.0, size * 0.9, fade(rgb(0x7A2416), 0.6), Align::Center);
+        gfx::text_outlined(name, cx, y - ((t * 3.0).sin().max(0.0)) * 6.0, size * 0.9, CREAM, INK, 4.0, Align::Center);
     }
 }
-
-/// The app icon: the visitor mid-bite, in the 480×480 square in the middle of the canvas.
-fn icon(t: f32) {
-    dotted_backdrop(rgb(0xEA6A3F), rgb(0xC4402A), 0.0);
-    gfx::glow(320.0, 230.0, 230.0, fade(rgb(0xFFD08A), 0.55));
-    let pose = Pose { eat: Some(0.5), ..Pose::idle(Facing::Down, t) };
-    art::visitor(320.0, 440.0, 1.5, &pose);
-}
-
-// ---- Title -------------------------------------------------------------
 
 fn title(app: &App) {
-    let t = app.t;
-    dotted_backdrop(rgb(0xEA6A3F), rgb(0xC4402A), t);
-    gfx::glow(320.0, 330.0, 260.0, fade(rgb(0xFFD08A), 0.45));
-
-    // The logo, each character bouncing in turn.
-    let chars: Vec<char> = "吃吃吃".chars().collect();
-    for (i, ch) in chars.iter().enumerate() {
-        let k = ((t * 3.2 - i as f32 * 0.55).sin()).max(0.0);
-        let x = 214.0 + i as f32 * 106.0;
-        let y = 38.0 - k * 12.0;
-        let s = ch.to_string();
-        gfx::text(&s, x + 4.0, y + 6.0, 92.0, fade(rgb(0x7A2416), 0.6), Align::Center);
-        gfx::text_outlined(&s, x, y, 92.0, CREAM, INK, 4.0, Align::Center);
-    }
-    gfx::text_outlined("OVEREATEN", 320.0, 146.0, 30.0, MUSTARD, INK, 2.5, Align::Center);
-    gfx::text(app.tr(tx::TAGLINE), 320.0, 186.0, 18.0, CREAM, Align::Center);
-
-    // 小馋 at a little table, plates circling.
-    let (cx, cy) = (320.0, 350.0);
-    let orbit = |i: usize| {
-        let a = t * 0.9 + i as f32 * PI * 2.0 / 6.0;
-        (cx + a.cos() * 150.0, cy - 6.0 + a.sin() * 42.0, a.sin())
-    };
-    for i in 0..6 {
-        let (x, y, z) = orbit(i);
-        if z < 0.0 {
-            art::dish(x, y, i, 1.5);
-        }
-    }
-    ellipse_table(cx, cy + 34.0);
-    let k = (t * 0.6).fract();
-    let pose =
-        Pose { eat: if k > 0.45 { Some((k - 0.45) / 0.55) } else { None }, belly: 0.9, ..Pose::idle(Facing::Down, t) };
-    art::visitor(cx, cy + 28.0, 0.78, &pose);
-    for i in 0..6 {
-        let (x, y, z) = orbit(i);
-        if z >= 0.0 {
-            art::dish(x, y, i, 1.5);
-        }
-    }
-
+    gfx::grad_v(0.0, 0.0, gfx::W, 220.0, fade(INK, 0.75), fade(INK, 0.0));
+    logo(app, 320.0, 30.0, 78.0);
+    let sub = if app.lang == Lang::Zh { "OVEREATEN" } else { "自助大胃王" };
+    gfx::text_outlined(sub, 320.0, 128.0, 24.0, MUSTARD, INK, 2.5, Align::Center);
+    gfx::text_outlined(app.tr(tx::TAGLINE), 320.0, 160.0, 18.0, CREAM, INK, 2.0, Align::Center);
     let owned = CARDS.iter().filter(|c| app.save.has(c.id)).count();
-    rrect(16.0, 16.0, 112.0, 32.0, 16.0, fade(INK, 0.7));
-    gfx::text(&format!("{} {owned}/{}", app.tr(tx::COLLECTED), CARDS.len()), 72.0, 21.0, 18.0, CREAM, Align::Center);
+    rrect(16.0, 16.0, 120.0, 30.0, 15.0, fade(INK, 0.7));
+    gfx::text(&format!("{} {owned}/{}", app.tr(tx::COLLECTED), CARDS.len()), 76.0, 20.0, 17.0, CREAM, Align::Center);
+    rrect(504.0, 16.0, 120.0, 30.0, 15.0, fade(INK, 0.7));
+    ui::star(522.0, 31.0, 9.0, 1.0, GOLD, fade(CREAM, 0.3));
+    gfx::text(&format!("{}", app.save.total_stars()), 572.0, 20.0, 17.0, CREAM, Align::Center);
+    rrect(16.0, 408.0, 608.0, 24.0, 12.0, fade(INK, 0.55));
+    gfx::text(app.tr(tx::CREDITS), 320.0, 411.0, 15.0, fade(CREAM, 0.85), Align::Center);
     let [a, _, x] = app.labels;
-    prompts(&[(a, app.tr(tx::START)), (x, app.tr(tx::ALBUM)), ("Select", app.tr(tx::LANGUAGE))], true);
+    ui::prompts(&[(a, app.tr(tx::START)), (x, app.tr(tx::ALBUM)), ("Y", app.tr(tx::STATS)), ("Select", app.tr(tx::LANGUAGE))], true);
 }
 
-fn ellipse_table(x: f32, y: f32) {
-    gfx::ellipse(x, y + 14.0, 120.0, 22.0, fade(INK, 0.25));
-    gfx::ellipse(x, y + 6.0, 116.0, 26.0, WALNUT_DARK);
-    gfx::ellipse(x, y, 116.0, 26.0, WALNUT);
-    gfx::ellipse(x, y - 1.0, 108.0, 22.0, rgb(0xA06A45));
+fn icon(app: &App) {
+    ui::dotted_backdrop(rgb(0xEA6A3F), rgb(0xC4402A), 0.0);
+    gfx::glow(320.0, 240.0, 230.0, fade(rgb(0xFFD08A), 0.55));
+    if let Some(p) = app.portraits.get(Art::Dish(GOLDEN)) {
+        cards::blit(p, 120.0, 60.0, 400.0, 400.0 * cards::PH as f32 / cards::PW as f32, true, WHITE);
+    }
+    gfx::text_outlined("吃", 320.0, 330.0, 110.0, CREAM, INK, 6.0, Align::Center);
 }
 
-// ---- The street --------------------------------------------------------
+// ---- Heroes ---------------------------------------------------------------
 
-fn street(app: &App) {
-    let t = app.t;
-    gfx::grad_v(0.0, 0.0, gfx::W, 330.0, rgb(0x27314F), rgb(0x6B5B95));
-    gfx::grad_v(0.0, 330.0, gfx::W, 150.0, rgb(0x4A4458), rgb(0x2C2838));
-    for i in 0..9 {
-        gfx::rect(0.0, 340.0 + i as f32 * 16.0, gfx::W, 1.0, fade(CREAM, 0.06));
+fn heroes(app: &App) {
+    gfx::text_outlined(app.tr(tx::PICK_HERO), 320.0, 18.0, 30.0, CREAM, INK, 3.0, Align::Center);
+    let i = app.hero_sel;
+    let h = &HEROES[i];
+    let open = app.save.hero_unlocked(i);
+    for k in 0..HEROES.len() {
+        let x = 318.0 + (k as f32 - 1.5) * 142.0;
+        let sel = k == i;
+        let c = if sel { MUSTARD } else { fade(CREAM, 0.6) };
+        if app.save.hero_unlocked(k) {
+            gfx::text_outlined(HEROES[k].name.get(app.lang), x, 294.0, if sel { 20.0 } else { 16.0 }, c, INK, 2.0, Align::Center);
+        } else {
+            ui::lock(x, 306.0, fade(CREAM, 0.8));
+        }
     }
-    // String lights.
-    for i in 0..17 {
-        let x = i as f32 * 40.0 + 8.0;
-        let y = 64.0 + ((x - 320.0) / 320.0).powi(2) * -18.0 + 18.0;
-        let on = 0.6 + 0.4 * (t * 2.0 + i as f32 * 0.9).sin();
-        gfx::glow(x, y, 16.0, fade(rgb(0xFFD27F), 0.5 * on));
-        gfx::circle(x, y, 3.0, mix(rgb(0xFFB45E), rgb(0xFFF1C1), on));
-    }
-    gfx::curve((0.0, 64.0), (320.0, 100.0), (640.0, 64.0), 1.5, fade(INK, 0.8));
-    gfx::text_outlined(app.tr(tx::PICK), 320.0, 16.0, 30.0, CREAM, INK, 2.5, Align::Center);
-
-    for (i, r) in RESTAURANTS.iter().enumerate() {
-        let d = i as f32 - app.street_pos;
-        let sel = 1.0 - d.abs().min(1.0);
-        let s = 0.8 + 0.2 * sel;
-        let cx = 320.0 + d * 210.0;
-        let cy = 246.0 - sel * 6.0 + (t * 2.0 + i as f32).sin() * sel * 2.0;
-        gfx::transformed(cx, cy, 0.0, s, s, || ticket(app, i, r, sel));
+    ui::panel(24.0, 322.0, 592.0, 112.0);
+    let accent = rgb(h.accent);
+    rrect(36.0, 334.0, 6.0, 88.0, 3.0, accent);
+    let name = if open { h.name.get(app.lang) } else { app.tr(tx::LOCKED) };
+    gfx::text(name, 52.0, 330.0, 24.0, CREAM, Align::Left);
+    let desc = if open {
+        h.perk.get(app.lang).to_string()
+    } else {
+        match h.unlock {
+            Unlock::Stars(n) => format!("{}（{}/{n}）", tx::fill(app.tr(tx::NEED_STARS), n), app.save.total_stars()),
+            Unlock::Hospital => app.tr(tx::NEED_HOSPITAL).to_string(),
+            Unlock::Start => String::new(),
+        }
+    };
+    gfx::text_wrapped(&desc, 52.0, 362.0, 300.0, 15.0, 19.0, fade(CREAM, 0.9), Align::Left);
+    for (k, label) in tx::RATING.iter().enumerate() {
+        let y = 338.0 + k as f32 * 22.0;
+        gfx::text(label.get(app.lang), 372.0, y, 15.0, fade(CREAM, 0.85), Align::Left);
+        for p in 0..5 {
+            let on = open && (p as u8) < h.ratings[k];
+            rrect(450.0 + p as f32 * 30.0, y + 3.0, 26.0, 11.0, 5.0, if on { accent } else { fade(CREAM, 0.15) });
+        }
     }
     let [a, b, x] = app.labels;
-    let r = &RESTAURANTS[app.street_sel];
-    if r.open {
-        let enter = format!("{} {}", app.tr(tx::ENTER), r.admission);
-        prompts(&[(a, &enter), (b, app.tr(tx::BACK)), (x, app.tr(tx::ALBUM))], true);
-    } else {
-        prompts(&[(b, app.tr(tx::BACK)), (x, app.tr(tx::ALBUM))], true);
-    }
+    ui::prompts(&[(a, app.tr(tx::CHOOSE)), (b, app.tr(tx::BACK)), (x, app.tr(tx::ALBUM))], true);
 }
 
-/// A restaurant's ticket, centered on the origin.
-fn ticket(app: &App, i: usize, r: &Restaurant, sel: f32) {
-    let (w, h) = (190.0, 300.0);
-    let (x, y) = (-w / 2.0, -h / 2.0);
-    let accent = rgb(r.accent);
-    rrect(x + 4.0, y + 8.0, w, h, 14.0, fade(INK, 0.4));
-    rrect(x, y, w, h, 14.0, PAPER);
-    // Awning.
-    gfx::transformed(0.0, 0.0, 0.0, 1.0, 1.0, || {
-        rrect(x, y, w, 40.0, 14.0, accent);
-        for k in 0..6 {
-            if k % 2 == 1 {
-                gfx::rect(x + k as f32 * w / 6.0, y + 10.0, w / 6.0, 30.0, CREAM);
-            }
+// ---- Rooms ----------------------------------------------------------------
+
+fn kind_chip(g: &Goal, x: f32, y: f32, lang: Lang) -> f32 {
+    let k = g.kind();
+    let label = k.name().get(lang);
+    let w = gfx::measure(label, 13.0) + 12.0;
+    rrect(x, y, w, 18.0, 9.0, rgb(k.color()));
+    gfx::text(label, x + w / 2.0, y + 1.0, 13.0, INK, Align::Center);
+    w
+}
+
+fn levels(app: &App) {
+    let lang = app.lang;
+    gfx::grad_h(300.0, 0.0, 340.0, gfx::H, fade(INK, 0.0), fade(INK, 0.55));
+    // Restaurants along the top.
+    let mut x = 16.0;
+    for r in &RESTAURANTS {
+        let label = if r.open { r.name.get(lang).to_string() } else { format!("{} · {}", r.name.get(lang), app.tr(tx::SOON)) };
+        let w = gfx::measure(&label, 16.0) + 24.0;
+        rrect(x, 14.0, w, 28.0, 14.0, if r.open { rgb(r.accent) } else { fade(INK, 0.6) });
+        gfx::text(&label, x + w / 2.0, 18.0, 16.0, if r.open { CREAM } else { fade(CREAM, 0.5) }, Align::Center);
+        x += w + 8.0;
+    }
+    // The hero eating today.
+    let h = &HEROES[app.hero_sel];
+    if let Some(p) = app.portraits.get(Art::Hero(app.hero_sel)) {
+        rrect(16.0, 50.0, 132.0, 42.0, 21.0, fade(INK, 0.65));
+        gfx::circle(37.0, 71.0, 18.0, rgb(h.accent));
+        cards::blit(p, 14.0, 46.0, 48.0, 44.0, true, WHITE);
+        gfx::text(h.name.get(lang), 62.0, 61.0, 16.0, CREAM, Align::Left);
+    }
+    // Room dots.
+    for i in 0..LEVELS.len() {
+        let x = 330.0 + i as f32 * 36.0;
+        let sel = i == app.level_sel;
+        let open = app.save.level_open(i);
+        gfx::circle(x + 14.0, 30.0, if sel { 14.0 } else { 11.0 }, if sel { MUSTARD } else if open { fade(CREAM, 0.85) } else { fade(INK, 0.7) });
+        if open {
+            gfx::text(&format!("{}", i + 1), x + 14.0, 21.0, 16.0, INK, Align::Center);
+        } else {
+            ui::lock(x + 14.0, 30.0, fade(CREAM, 0.6));
         }
-        for k in 0..6 {
-            let c = if k % 2 == 0 { accent } else { CREAM };
-            gfx::circle(x + (k as f32 + 0.5) * w / 6.0, y + 40.0, w / 12.0, c);
+        let st = app.save.stars_of(i);
+        for s in 0..3 {
+            ui::star(x + 6.0 + s as f32 * 8.0, 50.0, 3.6, if (s as u32) < st { 1.0 } else { 0.0 }, GOLD, fade(INK, 0.6));
         }
-    });
-    art::storefront(i, 0.0, y + 98.0, app.t);
-    gfx::text(app.tr(r.name), 0.0, y + 140.0, 26.0, INK, Align::Center);
-    gfx::text(app.tr(r.way), 0.0, y + 174.0, 16.0, fade(INK, 0.75), Align::Center);
-    let mut dx = x + 14.0;
-    while dx < x + w - 14.0 {
-        gfx::rect(dx, y + 202.0, 6.0, 2.0, fade(INK, 0.3));
-        dx += 11.0;
     }
-    gfx::text(app.tr(tx::TASK), x + 14.0, y + 212.0, 16.0, accent, Align::Left);
-    gfx::text_wrapped(app.tr(r.task), x + 14.0, y + 232.0, w - 28.0, 17.0, 22.0, INK, Align::Left);
-    art::coin(x + 26.0, y + h - 22.0, 9.0);
-    gfx::text(&format!("{} {}", app.tr(tx::ADMISSION), r.admission), x + 42.0, y + h - 33.0, 18.0, INK, Align::Left);
-    if !r.open {
-        rrect(x, y, w, h, 14.0, fade(INK, 0.55));
-        art::lock(0.0, y + 70.0, CREAM);
-        rrect(-70.0, y + 96.0, 140.0, 34.0, 17.0, fade(INK, 0.85));
-        gfx::text(app.tr(tx::SOON), 0.0, y + 101.0, 20.0, CREAM, Align::Center);
+    // Tickets slide in from the side.
+    for i in 0..LEVELS.len() {
+        let off = i as f32 - app.level_pos;
+        if off.abs() > 1.2 {
+            continue;
+        }
+        ticket(app, i, 330.0 + off * 320.0, 64.0);
     }
-    if sel > 0.5 {
-        gfx::rrect_lines(x - 5.0, y - 5.0, w + 10.0, h + 10.0, 18.0, 3.0, fade(MUSTARD, sel));
+    let [a, b, x] = app.labels;
+    let enter = if app.save.level_open(app.level_sel) { app.tr(tx::ENTER) } else { app.tr(tx::ROOM_LOCKED) };
+    ui::prompts(&[(a, enter), (b, app.tr(tx::HERO)), (x, app.tr(tx::ALBUM))], true);
+}
+
+fn ticket(app: &App, i: usize, x: f32, y: f32) {
+    let lang = app.lang;
+    let d = &LEVELS[i];
+    let (w, h) = (296.0, 366.0);
+    rrect(x + 3.0, y + 5.0, w, h, 10.0, fade(INK, 0.4));
+    rrect(x, y, w, h, 10.0, PAPER);
+    // Perforations and the stub.
+    for k in 0..18 {
+        gfx::circle(x + 10.0 + k as f32 * 16.0, y + 58.0, 2.5, fade(INK, 0.25));
+    }
+    gfx::circle(x, y + 58.0, 8.0, fade(INK, 0.6));
+    gfx::circle(x + w, y + 58.0, 8.0, fade(INK, 0.6));
+    rrect(x, y, w, 50.0, 10.0, rgb(RESTAURANTS[0].accent));
+    gfx::text(&tx::fill(app.tr(tx::ROOM), i + 1), x + 14.0, y + 4.0, 14.0, fade(CREAM, 0.9), Align::Left);
+    gfx::text(d.name.get(lang), x + 14.0, y + 19.0, 24.0, CREAM, Align::Left);
+    gfx::text(&format!("{} {}", app.tr(tx::ADMISSION), d.admission), x + w - 14.0, y + 8.0, 15.0, CREAM, Align::Right);
+    gfx::text(&format!("{} {:.0}s", app.tr(tx::CLOSING), d.duration), x + w - 14.0, y + 28.0, 15.0, fade(CREAM, 0.85), Align::Right);
+    let mut yy = y + 68.0;
+    yy += gfx::text_wrapped(d.gimmick.get(lang), x + 14.0, yy, w - 28.0, 15.0, 19.0, fade(INK, 0.8), Align::Left) + 6.0;
+    gfx::text(app.tr(tx::MAIN_TASK), x + 14.0, yy, 14.0, TOMATO, Align::Left);
+    kind_chip(&d.main, x + 16.0 + gfx::measure(app.tr(tx::MAIN_TASK), 14.0) + 6.0, yy, lang);
+    yy += 22.0;
+    yy += gfx::text_wrapped(&d.main.text(lang), x + 14.0, yy, w - 28.0, 18.0, 22.0, INK, Align::Left) + 8.0;
+    gfx::text(&format!("{} ({})", app.tr(tx::SIDE_GOALS), tx::fill(app.tr(tx::EACH_GOAL), RULES.bonus)), x + 14.0, yy, 14.0, TOMATO, Align::Left);
+    yy += 20.0;
+    let goals: Vec<Goal> = if i == app.level_sel { app.ticket_goals.clone() } else { Vec::new() };
+    for g in &goals {
+        let cw = kind_chip(g, x + 14.0, yy, lang);
+        gfx::text_wrapped(&g.text(lang), x + 20.0 + cw, yy, w - 40.0 - cw, 15.0, 18.0, INK, Align::Left);
+        yy += 24.0;
+    }
+    // Today's menu: the six dishes, their points and how filling they are.
+    let my = y + h - 122.0;
+    gfx::text(app.tr(tx::MENU), x + 14.0, my - 2.0, 14.0, TOMATO, Align::Left);
+    for (k, dish) in DISHES[..EVERYDAY].iter().enumerate() {
+        let cx = x + 14.0 + k as f32 * 45.0;
+        if let Some(p) = app.portraits.get(Art::Dish(k)) {
+            cards::blit(p, cx - 2.0, my + 14.0, 44.0, 40.0, true, WHITE);
+        }
+        gfx::text(&format!("{}", dish.value), cx + 20.0, my + 50.0, 13.0, INK, Align::Center);
+        gfx::text(&format!("{}%", dish.fullness), cx + 20.0, my + 63.0 - 2.0, 11.0, fade(INK, 0.55), Align::Center);
+    }
+    // Stars and the best score.
+    let by = y + h - 60.0;
+    rrect(x + 10.0, by, w - 20.0, 50.0, 8.0, fade(INK, 0.08));
+    let st = app.save.stars_of(i);
+    for s in 0..3 {
+        ui::star(x + 32.0 + s as f32 * 28.0, by + 25.0, 11.0, if (s as u32) < st { 1.0 } else { 0.0 }, GOLD, fade(INK, 0.25));
+    }
+    let lines = tx::fill(&tx::fill(app.tr(tx::STAR_LINES), d.stars[0]), d.stars[1]);
+    gfx::text(&lines, x + w - 14.0, by + 6.0, 13.0, fade(INK, 0.7), Align::Right);
+    let best = app.save.best_of(i).map_or("—".to_string(), |b| b.to_string());
+    gfx::text(&format!("{} {best}", app.tr(tx::BEST)), x + w - 14.0, by + 24.0, 18.0, INK, Align::Right);
+    if !app.save.level_open(i) {
+        rrect(x, y, w, h, 10.0, fade(INK, 0.55));
+        ui::lock(x + w / 2.0, y + h / 2.0 - 10.0, CREAM);
+        gfx::text(app.tr(tx::ROOM_LOCKED), x + w / 2.0, y + h / 2.0 + 16.0, 18.0, CREAM, Align::Center);
     }
 }
 
-// ---- Dining ------------------------------------------------------------
-
-enum Thing {
-    Island,
-    Plate(usize),
-    Visitor,
-    Booth,
-    Yuzu,
-    Condiments,
-    Tea,
-}
-
-/// The plate's drawing scale on the stage.
-const PLATE_SCALE: f32 = 0.31;
-/// The visitor's art scale on the stage.
-const VISITOR_SCALE: f32 = 0.5;
+// ---- The meal --------------------------------------------------------------
 
 fn dining(app: &App) {
     let Some(r) = &app.round else { return };
-    let t = app.t;
-    let reach = r.reachable();
-    art::on_stage(|| {
-        art::room(t);
-        let mut things: Vec<(f32, Thing)> = vec![
-            (CY - OUTER, Thing::Island),
-            (r.player.pos.y, Thing::Visitor),
-            (BOOTH.1 + 40.0, Thing::Booth),
-            (YUZU.1 + 40.0, Thing::Yuzu),
-            (CY + 14.0, Thing::Condiments),
-            (CY + 14.0, Thing::Tea),
-        ];
-        for (i, p) in r.plates.iter().enumerate() {
-            things.push((p.pos().y + 0.5, Thing::Plate(i)));
-        }
-        things.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for (_, th) in &things {
-            match th {
-                Thing::Island => art::island(r.belt_travel),
-                Thing::Booth => art::booth(),
-                Thing::Yuzu => art::yuzu(),
-                Thing::Condiments => art::condiments(),
-                Thing::Tea => art::tea(),
-                Thing::Plate(i) => plate(app, r, *i, reach == Some(*i)),
-                Thing::Visitor => visitor(app, r),
-            }
-        }
-        morsel(r);
-    });
-
-    // The plate within reach: a bubble naming the dish and its worth.
-    if let Some(i) = reach {
-        let (px, py) = art::canvas(r.plates[i].pos(), COUNTER_H);
-        let d = &DISHES[r.plates[i].dish];
-        let by = py - 52.0 - (t * 5.0).sin().abs() * 3.0;
-        let [a, ..] = app.labels;
-        let name = app.tr(d.name);
-        let worth = format!("+{}", d.coins);
-        let w = gfx::measure(a, 13.0).max(10.0) + 11.0 + gfx::measure(name, 16.0) + gfx::measure(&worth, 16.0) + 26.0;
-        let bx = (px - w / 2.0).clamp(8.0, gfx::W - 8.0 - w);
-        rrect(bx + 2.0, by + 3.0, w, 28.0, 14.0, fade(INK, 0.35));
-        rrect(bx, by, w, 28.0, 14.0, fade(HOUSE, 0.96));
-        gfx::rrect_lines(bx, by, w, 28.0, 14.0, 1.5, fade(CREAM, 0.6));
-        gfx::tri((px - 6.0, by + 27.0), (px + 6.0, by + 27.0), (px, by + 34.0), fade(HOUSE, 0.96));
-        let aw = art::button_badge(a, bx + 5.0, by + 5.0, 18.0, MUSTARD, INK);
-        let nw = gfx::text(name, bx + aw + 10.0, by + 4.0, 16.0, CREAM, Align::Left);
-        gfx::text(&worth, bx + aw + 15.0 + nw, by + 4.0, 16.0, MUSTARD, Align::Left);
-    }
-
-    app.fx.draw_world();
-
-    // Danger: a slow red pulse at the edges and the countdown overhead.
-    if let Some(d) = r.danger {
-        let pulse = 0.5 + 0.5 * (t * PI * 2.0).sin();
-        let a = 0.25 + 0.2 * pulse;
-        gfx::grad_v(0.0, 0.0, gfx::W, 70.0, fade(RED, a), fade(RED, 0.0));
-        gfx::grad_v(0.0, 410.0, gfx::W, 70.0, fade(RED, 0.0), fade(RED, a));
-        gfx::grad_h(0.0, 0.0, 70.0, gfx::H, fade(RED, a), fade(RED, 0.0));
-        gfx::grad_h(570.0, 0.0, 70.0, gfx::H, fade(RED, 0.0), fade(RED, a));
-        let left = (RULES.hospital_s - d).max(0.0);
-        let (hx, hy) = art::canvas(r.player.pos, 0.0);
-        let hy = hy - 92.0;
-        gfx::circle(hx, hy, 20.0, fade(INK, 0.85));
-        gfx::ring(hx, hy, 17.0, 20.0, -90.0, -90.0 + 360.0 * left / RULES.hospital_s, RED);
-        let n = format!("{}", left.ceil() as i32);
-        let pop = ease_back(1.0 - left.fract());
-        gfx::text_outlined(&n, hx, hy - 13.0 * pop, 26.0 * pop, CREAM, INK, 2.0, Align::Center);
-    }
-
-    // Outros: confetti, dimmed lights or the ambulance.
-    if let (Some(o), t) = (r.outcome, r.outro) {
-        match o {
-            Outcome::Closed => gfx::rect(0.0, 0.0, gfx::W, gfx::H, fade(INK, (t / 1.5).min(1.0) * 0.45)),
-            Outcome::Hospital => {
-                let (px, py) = art::canvas(r.player.pos, 0.0);
-                let x = 720.0 - ease_out(t / 1.6) * (720.0 - px - 46.0);
-                gfx::transformed(x, py - 14.0, 0.0, 1.6, 1.6, || ambulance(t));
-            }
-            Outcome::Done => {
-                for i in 0..24 {
-                    let k = (t * 0.6 + i as f32 * 0.37).fract();
-                    let x = (i as f32 * 53.0 + (t + i as f32).sin() * 20.0).rem_euclid(gfx::W);
-                    let c = [MUSTARD, TOMATO, MINT, SKY, CREAM][i % 5];
-                    gfx::transformed(x, k * 500.0 - 20.0, t * 200.0 + i as f32 * 40.0, 1.0, 1.0, || {
-                        gfx::rect(-3.0, -2.0, 6.0, 4.0, c)
-                    });
-                }
-            }
-        }
-    }
-
     hud(app, r);
-    app.fx.draw_banner();
     if let Some(sel) = app.paused {
-        pause(app, r, sel);
+        pause(app, sel);
     }
-}
-
-/// A plate on the belt (stage), popping on when served and fading back to the kitchen.
-fn plate(app: &App, r: &Round, i: usize, near: bool) {
-    let p = &r.plates[i];
-    let (x, y) = art::stage(p.pos(), COUNTER_H);
-    let age = (p.age / 0.48).clamp(0.0, 1.0);
-    let pop = ease_back(age).max(0.05);
-    let drop = (1.0 - ease_out(age)) * 70.0;
-    let s = PLATE_SCALE * pop * (1.0 - p.leaving).max(0.0);
-    if p.dish == GOLDEN {
-        let g = 70.0 + 6.0 * (app.t * 4.0).sin();
-        gfx::additive(|| gfx::glow(x, y - 10.0, g, fade(rgb(0xFFC85A), 0.47)));
-    }
-    if near {
-        let k = 0.5 + 0.5 * (app.t * 6.0).sin();
-        for j in 0..3 {
-            let rr = 58.0 + j as f32 * 5.0 + k * 4.0;
-            gfx::ring(x, y + 4.0, rr, rr + 3.0, 0.0, 360.0, fade(MUSTARD, 0.9 - j as f32 * 0.3));
-        }
-    }
-    let tint = fade(gfx::WHITE, 1.0 - p.leaving);
-    art::dish_stack(p.dish, x, y - drop, s, tint, true);
-}
-
-fn ambulance(t: f32) {
-    let flash = (t * 5.0).sin() > 0.0;
-    gfx::ellipse(0.0, 16.0, 36.0, 6.0, fade(INK, 0.3));
-    gfx::glow(-6.0, -24.0, 18.0, fade(if flash { rgb(0x5AA9E6) } else { RED }, 0.9));
-    rrect(-30.0, -18.0, 44.0, 32.0, 4.0, WHITE);
-    rrect(-46.0, -6.0, 20.0, 20.0, 4.0, WHITE);
-    rrect(-43.0, -3.0, 11.0, 8.0, 2.0, rgb(0x9CC9E8));
-    gfx::rect(-46.0, 2.0, 60.0, 4.0, RED);
-    gfx::rect(-11.0, -14.0, 6.0, 16.0, RED);
-    gfx::rect(-16.0, -9.0, 16.0, 6.0, RED);
-    rrect(-10.0, -24.0, 8.0, 6.0, 2.0, if flash { rgb(0x5AA9E6) } else { RED });
-    for wx in [-30.0, 4.0] {
-        gfx::circle(wx, 14.0, 6.0, INK);
-        gfx::circle(wx, 14.0, 2.5, rgb(0xC9C2B2));
-    }
-}
-
-fn visitor(app: &App, r: &Round) {
-    let pl = &r.player;
-    let eat = pl.eating.as_ref().map(|e| (e.t / RULES.eat_s).min(1.0));
-    let from_left = pl.eating.as_ref().is_some_and(|e| e.from.x < pl.pos.x);
-    let pose = Pose {
-        facing: pl.facing,
-        walking: pl.moving,
-        walk: pl.walk,
-        eat,
-        from_left,
-        belly: app.shown_fullness / RULES.capacity,
-        red: r.danger.is_some() || r.outcome == Some(Outcome::Hospital),
-        t: app.t,
-    };
-    let (x, y) = art::stage(pl.pos, 0.0);
-    let hop = if r.outcome == Some(Outcome::Done) { (r.outro * 8.0).sin().abs() * 16.0 } else { 0.0 };
-    art::visitor(x, y - hop, VISITOR_SCALE, &pose);
-}
-
-/// The bite on its way from the plate to the visitor's mouth (stage).
-fn morsel(r: &Round) {
-    let Some(e) = &r.player.eating else { return };
-    let k = e.t / RULES.bite_s;
-    if k >= 1.0 {
-        return;
-    }
-    let (fx, fy) = art::stage(e.from, COUNTER_H + 10.0);
-    let (vx, vy) = art::stage(r.player.pos, 0.0);
-    let (mx, my) = art::mouth(VISITOR_SCALE);
-    let (tx, ty) = (vx + mx, vy + my);
-    let ease = ease_out(k);
-    let (x, y) = (fx + (tx - fx) * ease, fy + (ty - fy) * ease - (k * PI).sin() * 50.0);
-    art::held(e.dish, x, y, 64.0 * (1.0 - 0.3 * ease));
 }
 
 fn hud(app: &App, r: &Round) {
-    let t = app.t;
-    let light = rgb(0xF6EAD0);
-    // Top right: time to closing.
-    let left = r.time_left();
-    let urgent = left < 15.0 && r.outcome.is_none();
-    let pulse = if urgent { 1.0 + 0.06 * (t * 6.0).sin() } else { 1.0 };
-    art::panel(514.0, 10.0, 114.0, 44.0);
-    art::hud_icon(true, 538.0, 32.0, 30.0, gfx::WHITE);
-    gfx::ring(
-        538.0,
-        32.0,
-        16.0,
-        18.0,
-        -90.0,
-        -90.0 + 360.0 * left / RULES.duration,
-        if urgent { TOMATO } else { CELADON },
-    );
-    let secs = left.ceil() as i32;
-    let tc = if urgent { rgb(0xFF8A6B) } else { light };
-    gfx::transformed(590.0, 32.0, 0.0, pulse, pulse, || {
-        gfx::text(&format!("{}:{:02}", secs / 60, secs % 60), 0.0, -15.0, 26.0, tc, Align::Center);
-    });
-
-    // Bottom left: the task, coins eaten against admission.
-    let (x0, y0, w0) = (12.0, 414.0, 220.0);
-    art::panel(x0, y0, w0, 56.0);
-    gfx::text(app.tr(RESTAURANTS[0].task), x0 + 14.0, y0 + 7.0, 15.0, fade(light, 0.85), Align::Left);
-    let bump = 1.0 + 0.3 * app.fx.bump_coins;
-    art::coin(x0 + 22.0, y0 + 38.0, 9.0 * bump);
-    let (bx, bw) = (x0 + 38.0, 96.0);
-    rrect(bx, y0 + 32.0, bw, 12.0, 6.0, fade(INK, 0.55));
-    let frac = (app.shown_coins / RULES.admission as f32).clamp(0.0, 1.0);
-    if frac > 0.0 {
-        rrect(bx, y0 + 32.0, (bw * frac).max(12.0), 12.0, 6.0, MUSTARD);
-        rrect(bx + 3.0, y0 + 33.5, (bw * frac - 6.0).max(6.0), 3.5, 1.75, fade(WHITE, 0.4));
+    let lang = app.lang;
+    let d = r.def();
+    // The danger: red edges and a countdown over the visitor.
+    if let Some(t) = r.danger {
+        let pulse = 0.5 + 0.5 * (app.t * 2.0 * PI).sin();
+        let a = 0.25 + 0.3 * pulse;
+        gfx::grad_v(0.0, 0.0, gfx::W, 60.0, fade(RED, a), fade(RED, 0.0));
+        gfx::grad_v(0.0, gfx::H - 60.0, gfx::W, 60.0, fade(RED, 0.0), fade(RED, a));
+        gfx::grad_h(0.0, 0.0, 60.0, gfx::H, fade(RED, a), fade(RED, 0.0));
+        gfx::grad_h(gfx::W - 60.0, 0.0, 60.0, gfx::H, fade(RED, 0.0), fade(RED, a));
+        let left = (r.hero_def().hospital_s - t).max(0.0);
+        let floor = r.layout.floor_at(r.player.pos);
+        let (x, y) = app.on_canvas(r.player.pos, floor + 200.0);
+        gfx::circle(x, y, 22.0, fade(INK, 0.8));
+        gfx::ring(x, y, 17.0, 21.0, -90.0, -90.0 + 360.0 * left / r.hero_def().hospital_s, RED);
+        gfx::text(&format!("{:.0}", left.ceil()), x, y - 13.0, 24.0, CREAM, Align::Center);
     }
-    let label = format!("{}/{}", app.shown_coins.round() as i32, RULES.admission);
-    gfx::text(&label, x0 + w0 - 12.0, y0 + 24.0, 24.0, light, Align::Right);
-    if r.combo >= 2 && r.combo_left() > 0.0 {
-        art::panel(x0, y0 - 34.0, 124.0, 28.0);
-        rrect(x0 + 10.0, y0 - 11.0, 104.0 * r.combo_left() / RULES.combo_window, 2.5, 1.2, fade(rgb(0xFF8FA3), 0.9));
-        gfx::text(
-            &format!("{} ×{}", app.tr(tx::COMBO), r.combo),
-            x0 + 62.0,
-            y0 - 31.0,
-            17.0,
-            rgb(0xFFB3C1),
-            Align::Center,
-        );
-    }
-
-    // Bottom middle and right: plates and the stomach.
-    let danger = r.danger.is_some();
-    let (x1, y1, w1) = (240.0, 414.0, 388.0);
-    art::panel(x1, y1, w1, 56.0);
-    if danger {
-        let a = 0.5 + 0.5 * (t * PI * 2.0).sin();
-        gfx::rrect_lines(x1 - 2.0, y1 - 2.0, w1 + 4.0, 60.0, 14.0, 3.0, fade(RED, a));
-    }
-    let pb = 1.0 + 0.25 * app.fx.bump_plates;
-    art::hud_icon(false, x1 + 28.0, y1 + 28.0, 34.0 * pb, gfx::WHITE);
-    gfx::text(&format!("{}", r.plates_eaten), x1 + 50.0, y1 + 14.0, 26.0, light, Align::Left);
-    let (bx, bw, by, bh) = (x1 + 92.0, 230.0, y1 + 30.0, 16.0);
-    let per = bw / 150.0;
-    rrect(bx, by, bw, bh, 8.0, fade(INK, 0.6));
-    gfx::rect(bx + 100.0 * per, by + 2.0, 20.0 * per, bh - 4.0, fade(MUSTARD, 0.22));
-    rrect(bx + 120.0 * per, by, 30.0 * per, bh, 8.0, fade(rgb(0x5A2A28), 0.9));
-    let f = app.shown_fullness.clamp(0.0, 150.0);
-    let fill = if f >= RULES.red_line {
-        RED
-    } else if f >= RULES.capacity {
-        rgb(0xF28C28)
-    } else if f >= 70.0 {
-        MUSTARD
-    } else {
-        CELADON
-    };
-    if f > 0.5 {
-        rrect(bx, by, (f * per).max(bh), bh, 8.0, fill);
-        rrect(bx + 3.0, by + 2.0, (f * per - 6.0).max(8.0), 4.0, 2.0, fade(WHITE, 0.35));
-    }
-    // What the plate in reach would add.
+    // The bubble over the plate in reach.
     if let Some(i) = r.reachable() {
-        let add = DISHES[r.plates[i].dish].fullness as f32;
-        let from = r.fullness.min(150.0);
-        let to = (r.fullness + add).min(150.0);
-        let c = if r.fullness + add > RULES.red_line { RED } else { light };
-        gfx::rect(bx + from * per, by + 3.0, (to - from) * per, bh - 6.0, fade(c, 0.45 + 0.25 * (t * 6.0).sin()));
+        let p = &r.plates[i];
+        let b = &r.layout.belts[p.belt];
+        let (x, y) = app.on_canvas(b.point(p.s).0, b.top() + 45.0);
+        let seen = r.visible(p);
+        let dish = &DISHES[p.dish];
+        let chained = r.last_dish().is_some_and(|l| l != p.dish) && r.combo_left() > 0.0;
+        let next = if chained { r.combo + 1 } else { 1 };
+        let label = if seen {
+            format!("{}  +{}", dish.name.get(lang), r.points_of(p.dish, next))
+        } else {
+            app.tr(tx::UNKNOWN).to_string()
+        };
+        let bw = gfx::measure(&label, 16.0) + 22.0;
+        let (bx, by) = ((x - bw / 2.0).clamp(8.0, 632.0 - bw), (y - 36.0).max(70.0));
+        rrect(bx, by, bw, 26.0, 13.0, fade(INK, 0.88));
+        gfx::tri((x - 6.0, by + 25.0), (x + 6.0, by + 25.0), (x, by + 32.0), fade(INK, 0.88));
+        let col = if seen { rgb(dish.hue.plate()) } else { fade(CREAM, 0.6) };
+        gfx::circle(bx + 11.0, by + 13.0, 4.0, col);
+        gfx::text(&label, bx + bw / 2.0 + 4.0, by + 4.0, 16.0, CREAM, Align::Center);
     }
-    gfx::rect(bx + 100.0 * per - 1.0, by - 4.0, 2.0, bh + 8.0, light);
-    gfx::tri(
-        (bx + 120.0 * per - 5.0, by - 7.0),
-        (bx + 120.0 * per + 5.0, by - 7.0),
-        (bx + 120.0 * per, by - 1.0),
-        MUSTARD,
-    );
-    let label = format!("{} {}%", app.tr(tx::FULLNESS), f.round() as i32);
-    gfx::text(&label, bx, y1 + 7.0, 15.0, if danger { rgb(0xFF9A9A) } else { fade(light, 0.85) }, Align::Left);
+    // The mage's foresight.
+    if r.hero_def().foresight {
+        for (bi, b) in r.layout.belts.iter().enumerate() {
+            let (x, y) = app.on_canvas(b.point(b.serve_s()).0, b.top() + 140.0);
+            let label = format!("{}：{}", app.tr(tx::NEXT), DISHES[r.next_dish[bi]].name.get(lang));
+            let w = gfx::measure(&label, 13.0) + 12.0;
+            rrect(x - w / 2.0, y - 10.0, w, 18.0, 9.0, fade(rgb(0x5B3F8C), 0.85));
+            gfx::text(&label, x, y - 8.0, 13.0, CREAM, Align::Center);
+        }
+    }
+
+    // Top left: the room, the task and the side goals.
+    let pw = 290.0;
+    let ph = 76.0 + r.goals.len() as f32 * 20.0;
+    ui::panel(12.0, 12.0, pw, ph);
+    gfx::text(&format!("{} · {}", tx::fill(app.tr(tx::ROOM), r.level + 1), d.name.get(lang)), 24.0, 17.0, 14.0, fade(CREAM, 0.7), Align::Left);
+    let main_ok = match r.main_state {
+        State::Done => Some(true),
+        State::Failed => Some(false),
+        State::Open => None,
+    };
+    ui::mark(32.0, 46.0, 8.0, main_ok);
+    gfx::text_wrapped(&d.main.text(lang), 46.0, 36.0, pw - 44.0, 16.0, 18.0, CREAM, Align::Left);
+    let (now, target) = d.main.progress(&r.tally);
+    let fill = if r.main_state == State::Done { MINT } else { MUSTARD };
+    ui::bar(24.0, 62.0, pw - 80.0, 9.0, now / target.max(1e-3), fill);
+    let prog = match d.main {
+        Goal::Precision { .. } => format!("{:.0}%", r.fullness),
+        Goal::Risk { secs, score } => format!("{:.1}/{secs:.0}s {}/{score}", r.tally.red_secs, r.tally.score),
+        _ => format!("{:.0}/{:.0}", now, target),
+    };
+    gfx::text(&prog, pw + 4.0, 57.0, 14.0, fade(CREAM, 0.9), Align::Right);
+    for (k, g) in r.goals.iter().enumerate() {
+        let y = 80.0 + k as f32 * 20.0;
+        let ok = match r.goal_state[k] {
+            State::Done => Some(true),
+            State::Failed => Some(false),
+            State::Open => None,
+        };
+        ui::mark(30.0, y + 8.0, 6.0, ok);
+        let c = if ok == Some(false) { fade(CREAM, 0.4) } else { fade(CREAM, 0.88) };
+        gfx::text(&g.text(lang), 42.0, y, 14.0, c, Align::Left);
+    }
+
+    // Top right: the clock.
+    let left = r.time_left();
+    let late = left < 15.0;
+    ui::panel(520.0, 12.0, 108.0, 52.0);
+    let k = left / d.duration;
+    gfx::circle(548.0, 38.0, 16.0, fade(INK, 0.6));
+    gfx::ring(548.0, 38.0, 11.0, 16.0, -90.0, -90.0 + 360.0 * k, if late { RED } else { MUSTARD });
+    let secs = left.ceil() as i32;
+    gfx::text(&format!("{}:{:02}", secs / 60, secs % 60), 600.0, 24.0, 24.0, if late { rgb(0xFF8A80) } else { CREAM }, Align::Center);
+    if let Some(g) = r.next_golden() {
+        if matches!(d.main, Goal::Golden { .. }) && g - r.t < 30.0 {
+            rrect(528.0, 70.0, 100.0, 20.0, 10.0, fade(rgb(0xC9971C), 0.9));
+            gfx::text(&tx::fill(app.tr(tx::GOLDEN_IN), format!("{:.0}", (g - r.t).max(0.0))), 578.0, 72.0, 14.0, INK, Align::Center);
+        }
+    }
+
+    // Bottom left: the score and the combo.
+    ui::panel(12.0, 396.0, 200.0, 72.0);
+    let bump = 1.0 + app.bump_score * 0.15;
+    gfx::text(app.tr(tx::SCORE), 24.0, 402.0, 14.0, fade(CREAM, 0.7), Align::Left);
+    gfx::transformed(24.0, 444.0, 0.0, bump, bump, || {
+        gfx::text(&format!("{:.0}", app.shown_score), 0.0, -26.0, 34.0, MUSTARD, Align::Left);
+    });
+    if r.combo >= 2 && r.combo_left() > 0.0 {
+        let m = r.multiplier();
+        gfx::text(&format!("{} {} ×{m:.2}", app.tr(tx::COMBO), r.combo), 200.0, 406.0, 15.0, BLUSH, Align::Right);
+        ui::bar(120.0, 430.0, 80.0, 7.0, r.combo_left() / RULES.combo_window, BLUSH);
+    }
+    gfx::text(&format!("{} {}", r.tally.plates, app.tr(tx::PLATES)), 200.0, 444.0, 14.0, fade(CREAM, 0.75), Align::Right);
+
+    // Bottom right: the stomach.
+    let (gx, gy, gw) = (380.0, 420.0, 230.0);
+    ui::panel(368.0, 396.0, 260.0, 72.0);
+    let scale = |p: f32| gx + gw * (p / 150.0).clamp(0.0, 1.0);
+    gfx::text(app.tr(tx::FULLNESS), gx, 402.0, 14.0, fade(CREAM, 0.7), Align::Left);
+    let shown = app.shown_fullness;
+    gfx::text(&format!("{:.0}%", shown), gx + gw, 400.0, 18.0, if r.danger.is_some() { rgb(0xFF8A80) } else { CREAM }, Align::Right);
+    rrect(gx, gy, gw, 18.0, 9.0, fade(INK, 0.7));
+    rrect(scale(RULES.red_line), gy, gx + gw - scale(RULES.red_line), 18.0, 9.0, fade(RED, 0.45));
+    let col = if shown > RULES.red_line {
+        RED
+    } else if shown > RULES.capacity {
+        rgb(0xFFB45E)
+    } else {
+        mix(MINT, MUSTARD, shown / 100.0)
+    };
+    if shown > 0.5 {
+        rrect(gx, gy, (scale(shown) - gx).max(18.0), 18.0, 9.0, col);
+    }
+    // The plate in reach, as a ghost.
+    if let Some(i) = r.reachable() {
+        let p = &r.plates[i];
+        if r.visible(p) {
+            let add = r.fill_of(p.dish);
+            let over = r.fullness + add > RULES.red_line;
+            let a = 0.4 + 0.2 * (app.t * 6.0).sin();
+            gfx::rect(scale(shown), gy + 3.0, scale(shown + add) - scale(shown), 12.0, fade(if over { RED } else { CREAM }, a));
+        }
+    }
+    gfx::rect(scale(100.0) - 1.0, gy - 3.0, 2.0, 24.0, CREAM);
+    gfx::rect(scale(RULES.red_line) - 1.0, gy - 3.0, 2.0, 24.0, RED);
+    for (p, label) in [(0.0, "0"), (100.0, "100"), (150.0, "150")] {
+        gfx::text(label, scale(p), gy + 22.0, 12.0, fade(CREAM, 0.6), Align::Center);
+    }
+    if r.lean.abs() > 0.05 {
+        let dir = if r.lean > 0.0 { "→" } else { "←" };
+        gfx::text_outlined(&format!("{} {}", app.tr(tx::LEAN), dir), 320.0, 92.0, 20.0, rgb(0x9FD8FF), INK, 2.0, Align::Center);
+    }
+    app.fx.draw_world();
 }
 
-fn pause(app: &App, r: &Round, sel: usize) {
+fn pause(app: &App, sel: usize) {
     gfx::rect(0.0, 0.0, gfx::W, gfx::H, fade(INK, 0.6));
-    let (x, y, w, h) = (170.0, 110.0, 300.0, 260.0);
-    rrect(x + 4.0, y + 8.0, w, h, 18.0, fade(INK, 0.5));
-    rrect(x, y, w, h, 18.0, PAPER);
-    gfx::text(app.tr(tx::PAUSED), 320.0, y + 18.0, 30.0, INK, Align::Center);
-    let secs = r.time_left().ceil() as i32;
-    let info =
-        format!("{} {}:{:02}   ·   {} / {}", app.tr(tx::TIME_LEFT), secs / 60, secs % 60, r.coins, RULES.admission);
-    gfx::text(&info, 320.0, y + 60.0, 17.0, fade(INK, 0.7), Align::Center);
-    for (i, item) in [tx::CONTINUE, tx::LEAVE].iter().enumerate() {
-        let iy = y + 98.0 + i as f32 * 52.0;
-        let on = i == sel;
-        rrect(x + 30.0, iy, w - 60.0, 42.0, 21.0, if on { TOMATO } else { fade(INK, 0.08) });
-        gfx::text(app.tr(*item), 320.0, iy + 9.0, 22.0, if on { CREAM } else { INK }, Align::Center);
+    let items = app.pause_items();
+    let h = 90.0 + items.len() as f32 * 40.0;
+    ui::panel(170.0, 240.0 - h / 2.0, 300.0, h);
+    gfx::text(app.tr(tx::PAUSED), 320.0, 240.0 - h / 2.0 + 14.0, 28.0, CREAM, Align::Center);
+    for (i, it) in items.iter().enumerate() {
+        let y = 240.0 - h / 2.0 + 60.0 + i as f32 * 40.0;
+        if i == sel {
+            rrect(196.0, y, 248.0, 34.0, 17.0, MUSTARD);
+        }
+        gfx::text(it.get(app.lang), 320.0, y + 6.0, 20.0, if i == sel { INK } else { CREAM }, Align::Center);
     }
-    gfx::text(app.tr(tx::QUIT_HINT), 320.0, y + h - 34.0, 16.0, fade(INK, 0.6), Align::Center);
+    gfx::text(app.tr(tx::QUIT_HINT), 320.0, 240.0 + h / 2.0 + 10.0, 15.0, fade(CREAM, 0.8), Align::Center);
 }
 
-// ---- The bill ----------------------------------------------------------
+// ---- The bill ----------------------------------------------------------------
 
-/// Where card `i` of `n` new cards settles in the result rack (top-left).
+/// The size of the rack's cards and how many fit in a row, for `n` new cards.
+pub fn rack_layout(n: usize) -> (f32, f32, usize) {
+    if n <= 4 {
+        (68.0, 96.0, 4)
+    } else if n <= 10 {
+        (54.0, 76.0, 5)
+    } else {
+        (44.0, 62.0, 6)
+    }
+}
+
+/// Where card `i` of `n` new cards sits in the rack: its top left.
 pub fn rack_slot(i: usize, n: usize) -> (f32, f32) {
-    let per_row = 3;
-    let row = i / per_row;
-    let in_row = if row + 1 < n.div_ceil(per_row) { per_row } else { n - row * per_row };
-    let col = i % per_row;
-    let w = in_row as f32 * 96.0 + (in_row as f32 - 1.0) * 12.0;
-    (176.0 - w / 2.0 + col as f32 * 108.0, 88.0 + row as f32 * 160.0)
+    let (w, h, per_row) = rack_layout(n);
+    let gap = 6.0;
+    let in_row = n.min(per_row);
+    let total = in_row as f32 * w + (in_row.max(1) - 1) as f32 * gap;
+    let x0 = 478.0 - total / 2.0;
+    let (row, col) = (i / per_row, i % per_row);
+    (x0 + col as f32 * (w + gap), 244.0 + row as f32 * (h + 8.0))
 }
 
 fn result(app: &App) {
     let Some(s) = &app.summary else { return };
-    let t = s.t;
-    let (top, bottom) = match s.outcome {
-        Outcome::Done => (rgb(0xEA6A3F), rgb(0xC4402A)),
-        Outcome::Closed => (rgb(0x7A5240), rgb(0x4E3326)),
-        Outcome::Hospital => (rgb(0x46557A), rgb(0x2A3350)),
-    };
-    dotted_backdrop(top, bottom, app.t);
-
-    // Left: the rack of new cards.
-    gfx::text_outlined(app.tr(tx::NEW_CARDS), 176.0, 30.0, 28.0, CREAM, INK, 2.0, Align::Center);
-    let pose = Pose {
-        eat: if s.outcome == Outcome::Done { Some(0.8 + 0.2 * (app.t * 0.8).sin()) } else { None },
-        belly: s.peak / 100.0,
-        red: s.outcome == Outcome::Hospital,
-        ..Pose::idle(Facing::Down, app.t)
-    };
-    if s.new_cards.is_empty() {
-        art::visitor(176.0, 330.0, 0.72, &pose);
-        gfx::text(app.tr(tx::NO_NEW_CARDS), 176.0, 360.0, 18.0, CREAM, Align::Center);
-    } else if s.new_cards.len() <= 3 {
-        let hop = if s.outcome == Outcome::Done { (app.t * 4.0).sin().abs() * 6.0 } else { 0.0 };
-        art::visitor(176.0, 420.0 - hop, 0.6, &pose);
+    let lang = app.lang;
+    gfx::rect(0.0, 0.0, gfx::W, gfx::H, fade(INK, 0.45));
+    // The receipt on the left.
+    let (x, y, w, h) = (24.0, 20.0, 290.0, 410.0);
+    let slide = ease_out(s.t * 2.5);
+    let y = y - (1.0 - slide) * 300.0;
+    rrect(x + 3.0, y + 5.0, w, h, 6.0, fade(INK, 0.4));
+    rrect(x, y, w, h, 6.0, PAPER);
+    for k in 0..19 {
+        gfx::tri((x + k as f32 * 15.3, y + h), (x + k as f32 * 15.3 + 15.3, y + h), (x + k as f32 * 15.3 + 7.6, y + h + 7.0), PAPER);
     }
-    for (i, &c) in s.new_cards.iter().enumerate() {
+    let d = &LEVELS[s.level];
+    gfx::text(app.tr(tx::BILL), x + w / 2.0, y + 10.0, 22.0, INK, Align::Center);
+    gfx::text(&format!("{} · {} · {}", RESTAURANTS[0].name.get(lang), tx::fill(app.tr(tx::ROOM), s.level + 1), d.name.get(lang)), x + w / 2.0, y + 38.0, 14.0, fade(INK, 0.6), Align::Center);
+    let mut yy = y + 64.0;
+    let line = |yy: f32, a: &str, b: String, c: Color| {
+        gfx::text(a, x + 18.0, yy, 16.0, fade(INK, 0.85), Align::Left);
+        gfx::text(&b, x + w - 18.0, yy, 16.0, c, Align::Right);
+    };
+    line(yy, app.tr(tx::ADMISSION), format!("-{}", d.admission), fade(INK, 0.6));
+    yy += 24.0;
+    line(yy, app.tr(tx::FOOD), format!("{}  ({} {})", s.food, s.plates, app.tr(tx::PLATES)), INK);
+    yy += 24.0;
+    line(yy, app.tr(tx::COMBO_BONUS), format!("+{}", s.combo_bonus), BLUSH);
+    yy += 24.0;
+    line(yy, app.tr(tx::PEAK), format!("{:.0}%", s.peak), if s.peak > RULES.red_line { RED } else { fade(INK, 0.7) });
+    yy += 24.0;
+    gfx::text(app.tr(tx::GOALS), x + 18.0, yy, 16.0, fade(INK, 0.85), Align::Left);
+    yy += 22.0;
+    for (g, st) in &s.goals {
+        ui::mark(x + 28.0, yy + 8.0, 7.0, Some(*st == State::Done));
+        gfx::text(&g.text(lang), x + 42.0, yy, 14.0, fade(INK, 0.8), Align::Left);
+        if *st == State::Done {
+            gfx::text(&format!("+{}", RULES.bonus), x + w - 18.0, yy, 14.0, rgb(0x2F8F83), Align::Right);
+        }
+        yy += 20.0;
+    }
+    if s.goals.is_empty() || s.bonus == 0 {
+        yy += 0.0;
+    }
+    yy += 6.0;
+    for k in 0..26 {
+        gfx::rect(x + 14.0 + k as f32 * 10.0, yy, 6.0, 2.0, fade(INK, 0.3));
+    }
+    yy += 10.0;
+    gfx::text(app.tr(tx::TOTAL), x + 18.0, yy + 6.0, 20.0, INK, Align::Left);
+    gfx::text(&format!("{}", s.score), x + w - 18.0, yy, 34.0, if s.outcome.won() { TOMATO } else { fade(INK, 0.5) }, Align::Right);
+    if s.outcome == Outcome::Hospital {
+        gfx::text(app.tr(tx::VOID), x + w / 2.0, yy + 42.0, 14.0, RED, Align::Center);
+    } else if s.outcome.won() && s.best_before.is_none_or(|b| s.score > b) && s.t > 1.0 {
+        gfx::text(app.tr(tx::NEW_BEST), x + w - 18.0, yy + 40.0, 16.0, rgb(0x2F8F83), Align::Right);
+    }
+    // The stamp.
+    let stamp = match s.outcome {
+        Outcome::Success => (tx::STAMP_WIN, rgb(0x2F8F83)),
+        Outcome::Closed => (tx::STAMP_CLOSED, rgb(0x8A8A8A)),
+        Outcome::Broke => (tx::STAMP_BROKE, TOMATO),
+        Outcome::Hospital => (tx::STAMP_HOSPITAL, RED),
+    };
+    let k = ((s.t - 0.5) * 4.0).clamp(0.0, 1.0);
+    if k > 0.0 {
+        let sc = 1.0 + (1.0 - ease_back(k)) * 1.2;
+        gfx::transformed(x + w - 70.0, y + h - 60.0, -14.0, sc, sc, || {
+            let label = stamp.0.get(lang);
+            let sw = gfx::measure(label, 22.0) + 24.0;
+            gfx::rrect_lines(-sw / 2.0, -20.0, sw, 40.0, 8.0, 3.0, fade(stamp.1, k));
+            gfx::text(label, 0.0, -13.0, 22.0, fade(stamp.1, k), Align::Center);
+        });
+    }
+
+    // Stars on the right.
+    rrect(340.0, 24.0, 276.0, 76.0, 14.0, fade(INK, 0.6));
+    for i in 0..3 {
+        let at = 0.6 + i as f32 * 0.3;
+        let k = ((s.t - at) * 4.0).clamp(0.0, 1.0);
+        let on = (i as u32) < s.stars;
+        let r = 22.0 * if on { ease_back(k).max(0.3) } else { 1.0 };
+        ui::star(410.0 + i as f32 * 68.0, 62.0, r, if on { k } else { 0.0 }, GOLD, fade(CREAM, 0.2));
+    }
+    for (i, &hi) in s.new_heroes.iter().enumerate() {
+        let label = tx::fill(app.tr(tx::NEW_HERO), HEROES[hi].name.get(lang));
+        rrect(340.0, 108.0 + i as f32 * 30.0, 276.0, 26.0, 13.0, rgb(HEROES[hi].accent));
+        gfx::text(&label, 478.0, 112.0 + i as f32 * 30.0, 16.0, INK, Align::Center);
+    }
+
+    // New cards on the right, turning over one by one.
+    let ny = 214.0;
+    gfx::text(app.tr(tx::NEW_CARDS), 478.0, ny, 18.0, CREAM, Align::Center);
+    if s.new_cards.is_empty() {
+        gfx::text(app.tr(tx::NO_NEW_CARDS), 478.0, ny + 60.0, 16.0, fade(CREAM, 0.7), Align::Center);
+    }
+    for (i, &ci) in s.new_cards.iter().enumerate() {
         let start = Summary::reveal_at(i);
-        let k = t - start;
-        if k < 0.0 {
+        if s.t < start {
             continue;
         }
-        let (x, y) = rack_slot(i, s.new_cards.len());
-        let slide = ease_out(k / 0.35);
-        let yy = y + (1.0 - slide) * 300.0;
-        let flip = ((k - 0.25) / 0.3).clamp(0.0, 1.0);
-        let face = flip >= 0.5;
-        let sx = ((flip * PI).cos()).abs().max(0.04);
-        let card = &CARDS[c];
-        let lift = if face { 1.0 + 0.08 * (1.0 - ((k - 0.55) / 0.3).clamp(0.0, 1.0)) } else { 1.0 };
-        gfx::transformed(x + 48.0, yy + 67.0, 0.0, sx * lift, lift, || {
-            if face {
-                art::card_face(-48.0, -67.0, 96.0, 134.0, card.art, rgb(card.band), app.tr(card.name), app.t);
-            } else {
-                art::card_back(-48.0, -67.0, 96.0, 134.0, false);
-            }
-        });
+        let (cx, cy) = rack_slot(i, s.new_cards.len());
+        let (cw, chh, _) = rack_layout(s.new_cards.len());
+        let drop = ease_out((s.t - start) * 4.0);
+        let k = ((s.t - start - 0.25) / 0.4).clamp(0.0, 1.0);
+        let card = &CARDS[ci];
+        cards::flipping(&app.gl, cx, cy - (1.0 - drop) * 40.0, cw, chh, card, app.portraits.get(card.art), lang, app.t, k);
     }
-
-    // Right: the bill.
-    let (x, y, w, h) = (364.0, 22.0, 252.0, 392.0);
-    let drop = ease_out(t / 0.4);
-    let y = y - (1.0 - drop) * 440.0;
-    rrect(x + 4.0, y + 6.0, w, h, 6.0, fade(INK, 0.35));
-    rrect(x, y, w, h, 6.0, PAPER);
-    for k in 0..14 {
-        let zx = x + k as f32 * w / 14.0;
-        gfx::tri((zx, y + h - 1.0), (zx + w / 14.0, y + h - 1.0), (zx + w / 28.0, y + h + 7.0), PAPER);
-    }
-    gfx::text(app.tr(RESTAURANTS[0].name), x + w / 2.0, y + 14.0, 24.0, INK, Align::Center);
-    gfx::text(app.tr(tx::BILL), x + w / 2.0, y + 44.0, 16.0, fade(INK, 0.6), Align::Center);
-    let dash = |yy: f32| {
-        let mut dx = x + 14.0;
-        while dx < x + w - 14.0 {
-            gfx::rect(dx, yy, 6.0, 2.0, fade(INK, 0.3));
-            dx += 11.0;
-        }
-    };
-    dash(y + 70.0);
-    let row = |i: usize, k: &str, v: &str, c: Color| {
-        let ry = y + 80.0 + i as f32 * 30.0;
-        gfx::text(k, x + 18.0, ry, 18.0, fade(INK, 0.8), Align::Left);
-        gfx::text(v, x + w - 18.0, ry, 20.0, c, Align::Right);
-    };
-    let balance = s.coins - RULES.admission;
-    row(0, app.tr(tx::FOOD_VALUE), &s.coins.to_string(), INK);
-    row(1, app.tr(tx::ADMISSION), &format!("-{}", RULES.admission), INK);
-    let bc = if balance >= 0 { rgb(0x2E8B57) } else { RED };
-    row(2, app.tr(tx::BALANCE), &format!("{balance:+}"), bc);
-    row(3, app.tr(tx::PLATES), &s.plates.to_string(), INK);
-    row(4, app.tr(tx::PEAK), &format!("{}%", s.peak.round() as i32), if s.peak > RULES.red_line { RED } else { INK });
-    dash(y + 234.0);
-    // What was eaten.
-    for (i, n) in s.eaten.iter().enumerate() {
-        let (cx, cy) = (x + 30.0 + (i % 4) as f32 * 58.0, y + 262.0 + (i / 4) as f32 * 48.0);
-        let a = if *n > 0 { 1.0 } else { 0.25 };
-        if *n > 0 {
-            art::dish(cx, cy, i, 1.15);
-        } else {
-            art::plate(cx, cy, i, 1.15, a);
-        }
-        gfx::text(&format!("×{n}"), cx + 20.0, cy + 2.0, 16.0, fade(INK, if *n > 0 { 0.9 } else { 0.35 }), Align::Left);
-    }
-
-    // The stamp.
-    let k = ((t - 0.5) / 0.25).clamp(0.0, 1.0);
-    if k > 0.0 {
-        let (word, c) = match s.outcome {
-            Outcome::Done => (tx::STAMP_DONE, rgb(0xC0392B)),
-            Outcome::Closed => (tx::STAMP_CLOSED, rgb(0x6B5B4B)),
-            Outcome::Hospital => (tx::STAMP_HOSPITAL, rgb(0x2F5DA8)),
-        };
-        let sc = 2.2 - 1.2 * ease_out(k);
-        gfx::transformed(x + w / 2.0, y + 360.0, -8.0, sc * 0.9, sc * 0.9, || {
-            let a = k;
-            gfx::rrect_lines(-62.0, -22.0, 124.0, 44.0, 10.0, 3.5, fade(c, 0.9 * a));
-            gfx::rrect_lines(-56.0, -16.0, 112.0, 32.0, 7.0, 1.5, fade(c, 0.9 * a));
-            gfx::text(app.tr(word), 0.0, -14.0, 24.0, fade(c, 0.9 * a), Align::Center);
-        });
-    }
-
     if app.save.failed {
-        gfx::text(app.tr(tx::SAVE_FAILED), 176.0, 420.0, 16.0, rgb(0xFFB0B0), Align::Center);
+        gfx::text(app.tr(tx::SAVE_FAILED), 478.0, 420.0, 14.0, RED, Align::Center);
     }
+    app.fx.draw_world();
     let [a, b, x] = app.labels;
-    prompts(&[(a, app.tr(tx::AGAIN)), (b, app.tr(tx::STREET)), (x, app.tr(tx::ALBUM))], true);
+    ui::prompts(&[(a, app.tr(tx::AGAIN)), (b, app.tr(tx::ROOMS)), (x, app.tr(tx::ALBUM))], true);
 }
 
-// ---- The album ---------------------------------------------------------
-
-fn album_slot(i: usize) -> (f32, f32) {
-    let (w, gap) = (104.0, 32.0);
-    if i < 4 {
-        (320.0 - (4.0 * w + 3.0 * gap) / 2.0 + i as f32 * (w + gap), 82.0)
-    } else {
-        (320.0 - (3.0 * w + 2.0 * gap) / 2.0 + (i - 4) as f32 * (w + gap), 252.0)
-    }
-}
+// ---- The album ---------------------------------------------------------------
 
 fn album(app: &App) {
-    let t = app.t;
-    gfx::grad_v(0.0, 0.0, gfx::W, gfx::H, rgb(0xF7EBD3), rgb(0xEAD7B7));
-    for row in 0..16 {
-        for col in 0..22 {
-            gfx::circle(col as f32 * 30.0 + 10.0, row as f32 * 30.0 + 10.0, 1.2, fade(WALNUT, 0.18));
-        }
-    }
-    gfx::text(app.tr(tx::ALBUM_TITLE), 24.0, 18.0, 30.0, INK, Align::Left);
+    let lang = app.lang;
+    gfx::text_outlined(app.tr(tx::ALBUM_TITLE), 24.0, 14.0, 26.0, CREAM, INK, 2.5, Align::Left);
     let owned = CARDS.iter().filter(|c| app.save.has(c.id)).count();
-    let tab = format!("{}  {owned}/{}", app.tr(RESTAURANTS[0].name), CARDS.len());
-    let tw = gfx::measure(&tab, 18.0) + 28.0;
-    rrect(616.0 - tw, 20.0, tw, 32.0, 16.0, TOMATO);
-    gfx::text(&tab, 616.0 - tw / 2.0, 25.0, 18.0, CREAM, Align::Center);
-
-    for (i, c) in CARDS.iter().enumerate() {
-        let (x, y) = album_slot(i);
-        let sel = i == app.album_sel;
-        let lift = if sel { -8.0 + (t * 3.0).sin() * 2.0 } else { 0.0 };
-        let have = app.save.has(c.id);
-        if sel {
-            gfx::rrect_lines(x - 6.0, y + lift - 6.0, 116.0, 158.0, 14.0, 3.0, MUSTARD);
+    gfx::text(&format!("{owned}/{}", CARDS.len()), 616.0, 20.0, 18.0, fade(CREAM, 0.8), Align::Right);
+    // The books, as tabs.
+    let mut x = 24.0;
+    for (bi, book) in BOOKS.iter().enumerate() {
+        let n = CARDS.iter().filter(|c| c.book == *book).count();
+        let got = CARDS.iter().filter(|c| c.book == *book && app.save.has(c.id)).count();
+        let label = format!("{} {got}/{n}", book.name().get(lang));
+        let w = gfx::measure(&label, 16.0) + 26.0;
+        let sel = bi == app.album_book;
+        rrect(x, 52.0, w, 30.0, 10.0, if sel { MUSTARD } else { fade(INK, 0.6) });
+        gfx::text(&label, x + w / 2.0, 57.0, 16.0, if sel { INK } else { CREAM }, Align::Center);
+        if app.save.book_done(*book) {
+            ui::star(x + w - 4.0, 54.0, 7.0, 1.0, GOLD, GOLD);
         }
-        if have {
-            art::card_face(x, y + lift, 104.0, 146.0, c.art, rgb(c.band), app.tr(c.name), t);
+        x += w + 8.0;
+    }
+    let book = BOOKS[app.album_book];
+    let done = app.save.book_done(book);
+    let reward = if done { tx::fill(app.tr(tx::BOOK_DONE), BOOK_BONUS) } else { tx::fill(app.tr(tx::BOOK_REWARD), BOOK_BONUS) };
+    gfx::text(&reward, 616.0, 58.0, 14.0, if done { GOLD } else { fade(CREAM, 0.6) }, Align::Right);
+    let ids = app.book_cards();
+    let cols = app.book_cols();
+    let (cw, chh, gap) = if cols == 8 { (66.0, 92.0, 8.0) } else { (104.0, 146.0, 20.0) };
+    let total = cols as f32 * cw + (cols - 1) as f32 * gap;
+    let x0 = 320.0 - total / 2.0;
+    for (k, &ci) in ids.iter().enumerate() {
+        let (col, row) = (k % cols, k / cols);
+        let (x, y) = (x0 + col as f32 * (cw + gap), 100.0 + row as f32 * (chh + 16.0));
+        let card = &CARDS[ci];
+        let sel = k == app.album_sel;
+        if sel {
+            let p = 0.5 + 0.5 * (app.t * 4.0).sin();
+            rrect(x - 5.0, y - 5.0, cw + 10.0, chh + 10.0, 12.0, fade(MUSTARD, 0.6 + 0.4 * p));
+        }
+        if app.save.has(card.id) {
+            cards::face(&app.gl, x, y, cw, chh, card, app.portraits.get(card.art), lang, app.t);
         } else {
-            art::card_back(x, y + lift, 104.0, 146.0, true);
+            cards::back(x, y, cw, chh, true);
         }
     }
-
-    if let Some(open) = app.album_open {
-        let c = &CARDS[app.album_sel];
-        let have = app.save.has(c.id);
-        let k = ease_back(open / 0.3);
-        gfx::rect(0.0, 0.0, gfx::W, gfx::H, fade(INK, 0.65 * (open / 0.2).min(1.0)));
-        let (from_x, from_y) = album_slot(app.album_sel);
-        let (cx, cy) = (from_x + 52.0 + (190.0 - from_x - 52.0) * k, from_y + 73.0 + (236.0 - from_y - 73.0) * k);
-        let s = 1.0 + 0.9 * k;
-        let wob = (open * 2.0).sin() * 1.5;
-        gfx::transformed(cx, cy, wob, s, s, || {
-            if have {
-                art::card_face(-52.0, -73.0, 104.0, 146.0, c.art, rgb(c.band), app.tr(c.name), t);
-            } else {
-                art::card_back(-52.0, -73.0, 104.0, 146.0, true);
-            }
-        });
-        let a = ((open - 0.15) / 0.2).clamp(0.0, 1.0);
-        let (px, pw) = (330.0, 270.0);
-        rrect(px, 120.0, pw, 220.0, 16.0, fade(PAPER, a));
-        let name = if have || !c.hidden { app.tr(c.name) } else { app.tr(tx::HIDDEN_NAME) };
-        let cond = if have || !c.hidden { app.tr(c.condition) } else { app.tr(tx::HIDDEN_COND) };
-        gfx::text(name, px + 20.0, 138.0, 28.0, fade(INK, a), Align::Left);
-        gfx::rect(px + 20.0, 178.0, 40.0, 4.0, fade(rgb(c.band), a));
-        gfx::text_wrapped(cond, px + 20.0, 196.0, pw - 40.0, 20.0, 28.0, fade(INK, 0.85 * a), Align::Left);
-        let (st, sc) = if have { (tx::OWNED, rgb(0x2E8B57)) } else { (tx::NOT_YET, fade(INK, 0.5)) };
-        gfx::text(app.tr(st), px + 20.0, 300.0, 18.0, fade(sc, a), Align::Left);
-        let [a, ..] = app.labels;
-        prompts(&[(a, app.tr(tx::CLOSE))], true);
+    // The selected card's name and condition along the bottom.
+    if let Some(&ci) = ids.get(app.album_sel) {
+        let card = &CARDS[ci];
+        let owned = app.save.has(card.id);
+        let hidden = card.rarity == Rarity::Hidden && !owned;
+        let name = if hidden { app.tr(tx::HIDDEN_NAME) } else { card.name.get(lang) };
+        let cond = if hidden { app.tr(tx::HIDDEN_COND) } else { card.condition.get(lang) };
+        ui::panel(24.0, 376.0, 592.0, 56.0);
+        gfx::text(name, 38.0, 382.0, 18.0, CREAM, Align::Left);
+        let rar = card.rarity.name().get(lang);
+        gfx::text(rar, 600.0, 384.0, 14.0, MUSTARD, Align::Right);
+        let c = if owned { cond.to_string() } else { format!("{} · {}", app.tr(tx::NOT_YET), cond) };
+        gfx::text(&c, 38.0, 406.0, 14.0, fade(CREAM, 0.85), Align::Left);
+    }
+    if let (Some(ci), Some(t)) = (app.open_card(), app.album_open) {
+        open_card(app, ci, t);
     } else {
         let [a, b, _] = app.labels;
-        prompts(&[(a, app.tr(tx::VIEW)), (b, app.tr(tx::BACK))], false);
+        ui::prompts(&[(a, app.tr(tx::VIEW)), ("L1/R1", app.tr(tx::BOOK)), (b, app.tr(tx::BACK))], true);
+    }
+}
+
+fn open_card(app: &App, ci: usize, t: f32) {
+    let lang = app.lang;
+    let k = ease_back((t * 4.0).min(1.0));
+    gfx::rect(0.0, 0.0, gfx::W, gfx::H, fade(rgb(0x14141C), 0.93 * k.min(1.0)));
+    let card = &CARDS[ci];
+    let owned = app.save.has(card.id);
+    let (w, h) = (216.0, 300.0);
+    let wobble = (t * 1.3).sin() * 3.0;
+    gfx::transformed(200.0, 236.0, wobble * 0.5, k, k, || {
+        if owned {
+            cards::face(&app.gl, -w / 2.0, -h / 2.0, w, h, card, app.portraits.detail().or(app.portraits.get(card.art)), lang, app.t);
+        } else {
+            cards::back(-w / 2.0, -h / 2.0, w, h, true);
+        }
+    });
+    let hidden = card.rarity == Rarity::Hidden && !owned;
+    let name = if hidden { app.tr(tx::HIDDEN_NAME) } else { card.name.get(lang) };
+    let cond = if hidden { app.tr(tx::HIDDEN_COND) } else { card.condition.get(lang) };
+    let a = (t * 4.0).min(1.0);
+    gfx::text(card.book.name().get(lang), 330.0, 120.0, 16.0, fade(MUSTARD, a), Align::Left);
+    gfx::text(name, 330.0, 142.0, 28.0, fade(CREAM, a), Align::Left);
+    let (edge, _) = (card.rarity, 0);
+    let rar = edge.name().get(lang);
+    rrect(330.0, 182.0, gfx::measure(rar, 15.0) + 18.0, 22.0, 11.0, fade(MUSTARD, a));
+    gfx::text(rar, 339.0, 185.0, 15.0, INK, Align::Left);
+    gfx::text_wrapped(cond, 330.0, 220.0, 280.0, 17.0, 22.0, fade(CREAM, 0.9 * a), Align::Left);
+    if !owned {
+        gfx::text(app.tr(tx::NOT_YET), 330.0, 290.0, 16.0, fade(rgb(0xFF8A80), a), Align::Left);
+    }
+    let [a_, b, _] = app.labels;
+    ui::prompts(&[(a_, app.tr(tx::CLOSE)), (b, app.tr(tx::BACK))], true);
+}
+
+// ---- The stats panel ---------------------------------------------------------
+
+fn stats(app: &App) {
+    let s = &app.stats;
+    let n = s.now;
+    let (x, y, w) = (12.0, 132.0, 236.0);
+    let r = app.round.as_ref().filter(|_| matches!(app.screen, Screen::Dining | Screen::Result));
+    let h = if r.is_some() { 250.0 } else { 128.0 };
+    rrect(x, y, w, h, 10.0, fade(rgb(0x14131F), 0.86));
+    let ms = s.frame_ms();
+    let fps = if ms > 0.0 { 1000.0 / ms } else { 0.0 };
+    let line = |i: usize, label: &str, v: String| {
+        let yy = y + 30.0 + i as f32 * 16.0;
+        gfx::text(label, x + 10.0, yy, 13.0, fade(CREAM, 0.65), Align::Left);
+        gfx::text(&v, x + w - 10.0, yy, 13.0, CREAM, Align::Right);
+    };
+    gfx::text(&format!("{fps:.0} FPS  {ms:.1} ms"), x + 10.0, y + 7.0, 16.0, if fps >= 45.0 { MINT } else { MUSTARD }, Align::Left);
+    // The frame-time graph.
+    let gx = x + 150.0;
+    for (i, f) in s.frames.iter().rev().take(40).enumerate() {
+        let hh = (f / 40.0 * 18.0).min(18.0);
+        let c = if *f > 22.0 { RED } else { MINT };
+        gfx::rect(gx + 76.0 - i as f32 * 2.0, y + 26.0 - hh, 1.5, hh, fade(c, 0.8));
+    }
+    let opt = |v: Option<f32>, unit: &str| v.map_or("—".to_string(), |v| format!("{v:.0}{unit}"));
+    line(0, "CPU", format!("{} / {} · {} cores", opt(n.cpu, "%"), opt(n.cpu_self, "%"), n.cores));
+    line(1, "MEM", format!("{} free / {}", opt(n.mem_free_mb, "M"), opt(n.mem_total_mb, "M")));
+    line(2, "APP", opt(n.mem_self_mb, " MB"));
+    let c = app.gl.last.get();
+    let room = app.scene.as_ref().map_or(0, |s| s.tris);
+    line(3, "GPU", format!("{} draws · {}k tris ({}k room)", c.draws, c.tris / 1000, room / 1000));
+    let gl = match unsafe { ffi::rlGetVersion() } {
+        v if v == ffi::rlGlVersion::RL_OPENGL_ES_30 as i32 => "GLES 3",
+        v if v == ffi::rlGlVersion::RL_OPENGL_ES_20 as i32 => "GLES 2",
+        v if v == ffi::rlGlVersion::RL_OPENGL_33 as i32 => "GL 3.3",
+        _ => "GL",
+    };
+    line(4, "TEMP/CLK", format!("{} · {} · {gl}", opt(n.temp_c, "°C"), opt(n.mhz, " MHz")));
+    if let Some(r) = r {
+        let hd = r.hero_def();
+        let d = r.def();
+        line(6, "ROOM", format!("{} · seed {}", d.id, app.save.meals));
+        line(7, "HERO", format!("{} ×{:.2} stomach", hd.id, hd.stomach));
+        line(8, "DIGEST/WALK", format!("{:.1}%/s · {:.0} cm/s", hd.digest, hd.walk));
+        line(9, "FULL/RED", format!("{:.1}% · {:.1}s/{:.0}s", r.fullness, r.danger.unwrap_or(0.0), hd.hospital_s));
+        line(10, "BELT", format!("{:.0} cm/s · {} plates", RULES.belt_speed, r.plates.len()));
+        line(11, "SCORE", format!("{} + {} bonus · ×{:.2}", r.tally.score, r.bonus, r.multiplier()));
+        line(12, "LEAN/DARK", format!("{:+.2} · {:.1}", r.lean, r.layout.dark));
     }
 }

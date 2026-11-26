@@ -1,49 +1,34 @@
-//! The painted art and the sounds, loaded once after the window opens.
+//! Models, textures and sounds, loaded once after the window opens.
 //!
-//! The paintings come from Tidewheel Sushi (gizlet/tidewheel-sushi): the
-//! room, the carousel island, the dishes in layers, the furniture and the
-//! visitor's nine frames. They are found under `assets/` in the app's folder:
+//! The models come from `assets/models/props.mesh` (KayKit, Poly Pizza; see
+//! `assets/licenses/CREDITS.md`), the tiling materials from ambientCG, the
+//! heroes from `assets/heroes/`. A few textures are made in code: the belt's
+//! slats, water, shoji paper and the kitchen curtain. The sounds are Tidewheel
+//! Sushi's. Everything is found under `assets/` in the app's folder:
 //! `GIZLET_APP_DIR` on Gizlet OS, else next to the program, else the working
 //! directory (`cargo run`).
 
-use raylib_sys::{self as ffi, Sound, Texture2D};
+use crate::m3::V3;
+use crate::mesh::{bounds, Pack, Part};
+use crate::render::make_texture;
+use raylib_sys::{self as ffi, Mesh, Music, Sound, Texture2D};
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-pub struct Dish {
-    pub ceramic: Texture2D,
-    pub contact: Texture2D,
-    pub food: Texture2D,
-    pub held: Texture2D,
+/// A model on the GPU, with its parts kept on the CPU for building rooms.
+pub struct Prop {
+    pub meshes: Vec<(Mesh, Option<usize>)>,
+    pub parts: Vec<Part>,
+    pub lo: V3,
+    pub hi: V3,
 }
 
-pub struct Player {
-    pub front: Texture2D,
-    pub right: Texture2D,
-    pub back: Texture2D,
-    pub walk_front: Texture2D,
-    pub walk_right: Texture2D,
-    pub walk_back: Texture2D,
-    pub reach: Texture2D,
-    pub bite: Texture2D,
-    pub savor: Texture2D,
-}
-
-pub struct Art {
-    pub room: Texture2D,
-    pub island: Texture2D,
-    pub island_shadow: Texture2D,
-    pub booth: Texture2D,
-    pub condiments: Texture2D,
-    pub tea: Texture2D,
-    pub yuzu: Texture2D,
-    pub plate_shadow: Texture2D,
-    pub dishes: Vec<Dish>,
-    pub player: Player,
-    pub clock: Texture2D,
-    pub plates: Texture2D,
-    pub glow: Texture2D,
+impl Prop {
+    pub fn size(&self) -> V3 {
+        self.hi - self.lo
+    }
 }
 
 pub struct Sounds {
@@ -56,12 +41,26 @@ pub struct Sounds {
     pub red: Sound,
 }
 
-pub struct Assets {
-    pub art: Art,
-    pub sounds: Option<Sounds>,
+/// Textures made in code, by index into `Assets::textures`.
+pub struct Made {
+    pub slats: usize,
+    pub water: usize,
+    pub paper: usize,
+    pub noren: usize,
+    pub steel: usize,
 }
 
-// Texture and sound handles are plain numbers owned by the one thread that draws.
+pub struct Assets {
+    pub dir: PathBuf,
+    pub props: HashMap<String, Prop>,
+    pub textures: Vec<Texture2D>,
+    pub by_name: HashMap<String, usize>,
+    pub made: Made,
+    pub sounds: Option<Sounds>,
+    pub music: Option<Music>,
+}
+
+// Texture, mesh and sound handles are plain numbers owned by the one thread that draws.
 unsafe impl Sync for Assets {}
 unsafe impl Send for Assets {}
 
@@ -71,7 +70,21 @@ pub fn get() -> &'static Assets {
     ASSETS.get().expect("assets are loaded after the window opens")
 }
 
-fn root() -> PathBuf {
+impl Assets {
+    pub fn prop(&self, name: &str) -> &Prop {
+        self.props.get(name).unwrap_or_else(|| panic!("no model named {name}"))
+    }
+
+    pub fn tex(&self, name: &str) -> usize {
+        *self.by_name.get(name).unwrap_or_else(|| panic!("no texture named {name}"))
+    }
+
+    pub fn texture(&self, i: usize) -> Texture2D {
+        self.textures[i]
+    }
+}
+
+pub fn root() -> PathBuf {
     let mut tries = Vec::new();
     if let Some(d) = std::env::var_os("GIZLET_APP_DIR") {
         tries.push(PathBuf::from(d));
@@ -84,16 +97,16 @@ fn root() -> PathBuf {
             }
         }
     }
+    tries.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
     tries.push(PathBuf::from("."));
-    tries.into_iter().find(|d| d.join("assets/art/room/room.png").is_file()).unwrap_or_else(|| PathBuf::from("."))
+    tries.into_iter().find(|d| d.join("assets/models/props.mesh").is_file()).unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn cstr(p: &Path) -> CString {
     CString::new(p.to_string_lossy().as_bytes()).unwrap_or_default()
 }
 
-/// A texture with mipmaps, so the large paintings shrink smoothly to the handheld's screen.
-fn texture(p: &Path) -> Result<Texture2D, String> {
+fn texture(p: &Path, repeat: bool) -> Result<Texture2D, String> {
     let mut t = unsafe { ffi::LoadTexture(cstr(p).as_ptr()) };
     if t.id == 0 {
         return Err(format!("cannot load {}", p.display()));
@@ -101,59 +114,114 @@ fn texture(p: &Path) -> Result<Texture2D, String> {
     unsafe {
         ffi::GenTextureMipmaps(&mut t);
         ffi::SetTextureFilter(t, ffi::TextureFilter::TEXTURE_FILTER_TRILINEAR as i32);
+        if repeat {
+            ffi::SetTextureWrap(t, ffi::TextureWrap::TEXTURE_WRAP_REPEAT as i32);
+        }
     }
     Ok(t)
+}
+
+fn hash(x: f32, y: f32) -> f32 {
+    let h = (x * 127.1 + y * 311.7).sin() * 43758.547;
+    h - h.floor()
 }
 
 /// Loads everything; call once after `InitWindow` (and `InitAudioDevice` for sounds).
 pub fn load(audio: bool) -> Result<(), String> {
     let dir = root().join("assets");
-    let t = |p: &str| texture(&dir.join("art").join(p));
-    let dishes = crate::rules::DISHES
-        .iter()
-        .map(|d| {
-            let n = d.art;
-            Ok(Dish {
-                ceramic: t(&format!("dishes/ceramics/{n}.png"))?,
-                contact: t(&format!("dishes/contact/{n}.png"))?,
-                food: t(&format!("dishes/ingredients/{n}.png"))?,
-                held: t(&format!("dishes/held/{n}.png"))?,
-            })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let art = Art {
-        room: t("room/room.png")?,
-        island: t("room/island-wave.png")?,
-        island_shadow: t("room/island-shadow.png")?,
-        booth: t("room/props/booth.png")?,
-        condiments: t("room/props/condiments.png")?,
-        tea: t("room/props/tea.png")?,
-        yuzu: t("room/props/yuzu.png")?,
-        plate_shadow: t("dishes/plate-shadow.png")?,
-        dishes,
-        player: Player {
-            front: t("player/front.png")?,
-            right: t("player/right.png")?,
-            back: t("player/back.png")?,
-            walk_front: t("player/walk-front.png")?,
-            walk_right: t("player/walk-right.png")?,
-            walk_back: t("player/walk-back.png")?,
-            reach: t("player/reach.png")?,
-            bite: t("player/bite.png")?,
-            savor: t("player/savor.png")?,
-        },
-        clock: t("hud/clock.png")?,
-        plates: t("hud/plates.png")?,
-        glow: unsafe {
-            let white = ffi::Color { r: 255, g: 255, b: 255, a: 255 };
-            let clear = ffi::Color { r: 255, g: 255, b: 255, a: 0 };
-            let img = ffi::GenImageGradientRadial(128, 128, 0.0, white, clear);
-            let g = ffi::LoadTextureFromImage(img);
-            ffi::UnloadImage(img);
-            ffi::SetTextureFilter(g, ffi::TextureFilter::TEXTURE_FILTER_BILINEAR as i32);
-            g
-        },
+    let raw = std::fs::read(dir.join("models/props.mesh")).map_err(|e| format!("cannot read the models: {e}"))?;
+    let pack = Pack::parse(&raw)?;
+    let mut textures = Vec::new();
+    let mut by_name = HashMap::new();
+    for name in &pack.textures {
+        by_name.insert(name.clone(), textures.len());
+        textures.push(texture(&dir.join("textures").join(name), false)?);
+    }
+    for name in ["floor_wood", "tatami", "deck", "plaster", "counter"] {
+        by_name.insert(name.to_string(), textures.len());
+        textures.push(texture(&dir.join("textures").join(format!("{name}.png")), true)?);
+    }
+    let mut add = |name: &str, t: Texture2D| {
+        by_name.insert(name.to_string(), textures.len());
+        textures.push(t);
+        textures.len() - 1
     };
+    // The belt: steel slats with dark joints, one slat per 0.2 of `u`.
+    let slats = add(
+        "slats",
+        make_texture(64, |u, v| {
+            let joint = ((u * 4.0).fract() < 0.1) as i32 as f32;
+            let edge = ((v - 0.5).abs() > 0.42) as i32 as f32;
+            let shine = 0.08 * (1.0 - (v - 0.35).abs() * 3.0).max(0.0);
+            let k = 0.78 + shine - joint * 0.32 - edge * 0.25 + hash(u * 9.0, v * 7.0) * 0.03;
+            let c = |b: f32| (b * k * 255.0).clamp(0.0, 255.0) as u8;
+            (c(0.86), c(0.88), c(0.9), 255)
+        }),
+    );
+    let water = add(
+        "water",
+        make_texture(128, |u, v| {
+            let w = ((u * 6.283 * 3.0).sin() + (v * 6.283 * 2.0 + u * 4.0).sin()) * 0.5;
+            let k = 0.85 + 0.15 * w + hash(u * 31.0, v * 17.0) * 0.04;
+            ((40.0 * k) as u8, (120.0 * k) as u8, (150.0 * k) as u8, 255)
+        }),
+    );
+    let paper = add(
+        "paper",
+        make_texture(64, |u, v| {
+            let grid = ((u * 3.0).fract() < 0.07 || (v * 4.0).fract() < 0.06) as i32 as f32;
+            let fibre = hash(u * 53.0, v * 47.0) * 0.05;
+            let k = 1.0 - fibre;
+            if grid > 0.0 {
+                (92, 62, 40, 255)
+            } else {
+                ((246.0 * k) as u8, (238.0 * k) as u8, (222.0 * k) as u8, 255)
+            }
+        }),
+    );
+    let noren = add(
+        "noren",
+        make_texture(64, |u, v| {
+            let band = ((v - 0.62).abs() < 0.06) as i32 as f32;
+            let dot = (((u - 0.5) * 1.4).powi(2) + (v - 0.32).powi(2)).sqrt() < 0.16;
+            if band > 0.0 || dot {
+                (250, 244, 230, 255)
+            } else {
+                let k = 0.92 + hash(u * 21.0, v * 9.0) * 0.08;
+                ((34.0 * k) as u8, (52.0 * k) as u8, (96.0 * k) as u8, 255)
+            }
+        }),
+    );
+    let steel = add(
+        "steel",
+        make_texture(32, |u, _| {
+            let k = 0.82 + 0.1 * (u * 6.283).sin();
+            ((200.0 * k) as u8, (206.0 * k) as u8, (212.0 * k) as u8, 255)
+        }),
+    );
+    let mut props = HashMap::new();
+    for (name, parts) in pack.models {
+        let meshes = parts
+            .iter()
+            .map(|p| {
+                let b = crate::mesh::Builder {
+                    pos: p.pos.clone(),
+                    nrm: p.nrm.clone(),
+                    uv: p.uv.clone(),
+                    col: p.col.clone(),
+                    idx: p.idx.clone(),
+                };
+                (b.upload(false), p.tex.map(|t| by_name[&pack.textures[t]]))
+            })
+            .collect();
+        let (lo, hi) = bounds(&parts);
+        // Parts keep the pack's texture numbers; map them to ours.
+        let parts = parts.into_iter().map(|mut p| {
+            p.tex = p.tex.map(|t| by_name[&pack.textures[t]]);
+            p
+        });
+        props.insert(name, Prop { meshes, parts: parts.collect(), lo, hi });
+    }
     let sounds = audio.then(|| {
         let s = |n: &str| unsafe { ffi::LoadSound(cstr(&dir.join("audio").join(n)).as_ptr()) };
         Sounds {
@@ -166,7 +234,19 @@ pub fn load(audio: bool) -> Result<(), String> {
             red: s("stomach-red.wav"),
         }
     });
-    ASSETS.set(Assets { art, sounds }).map_err(|_| "assets loaded twice".to_string())
+    let music = audio
+        .then(|| unsafe {
+            let m = ffi::LoadMusicStream(cstr(&dir.join("audio/lanterns-on-the-belt-compact.wav")).as_ptr());
+            (m.frameCount > 0).then(|| {
+                ffi::SetMusicVolume(m, 0.35);
+                m
+            })
+        })
+        .flatten();
+    let made = Made { slats, water, paper, noren, steel };
+    ASSETS
+        .set(Assets { dir, props, textures, by_name, made, sounds, music })
+        .map_err(|_| "assets loaded twice".to_string())
 }
 
 /// Plays a sound when audio is available.

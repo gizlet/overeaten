@@ -1,8 +1,8 @@
 id = "io.gizlet.overeaten"
-version = "0.1.1"
+version = "0.2.0"
 name = "Overeaten"
 category = "game"
-description = "Grab dishes off a sushi conveyor belt, pace your appetite, and earn cards before the restaurant closes."
+description = "A 3D all-you-can-eat game: pick a hero, pay at the door and clear eight rooms of a conveyor-belt sushi bar without eating yourself into hospital."
 tags = ["arcade", "food", "single-player"]
 color = "#B04B43"
 license = "MIT"
@@ -10,10 +10,10 @@ runtime = 1
 icon = "assets/icon.png"
 
 [names]
-zh-CN = "吃吃吃"
+zh-CN = "自助大胃王"
 
 [descriptions]
-zh-CN = "从回转寿司传送带上拿菜，掌握进食节奏，在餐厅打烊前赢取卡牌。"
+zh-CN = "3D 自助餐游戏：选个主角、付门票进店，在转转寿司的八个房间里吃够任务，别吃进医院，收集闪卡。"
 
 [[packages]]
 target = "aarch64-unknown-linux-gnu"
