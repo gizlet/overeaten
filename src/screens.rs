@@ -20,18 +20,18 @@ thread_local! {
     static STAGE: OnceCell<Mesh> = const { OnceCell::new() };
 }
 
-/// The framebuffer rectangle the canvas covers.
+/// The framebuffer rectangle the canvas covers. `View` is in drawing units:
+/// framebuffer pixels on macOS, window points elsewhere, so other high-DPI
+/// windows are scaled up to the framebuffer here.
 fn canvas_rect(view: View, shake: (f32, f32)) -> (i32, i32, i32, i32, i32, i32) {
-    let (fw, fh) = unsafe {
-        if cfg!(target_os = "macos") {
-            (ffi::GetRenderWidth(), ffi::GetRenderHeight())
-        } else {
-            (ffi::GetScreenWidth(), ffi::GetScreenHeight())
-        }
+    let (fw, fh, k) = unsafe {
+        let (rw, rh) = (ffi::GetRenderWidth(), ffi::GetRenderHeight());
+        let k = if cfg!(target_os = "macos") { 1.0 } else { rw as f32 / ffi::GetScreenWidth().max(1) as f32 };
+        (rw, rh, k)
     };
-    let x = (view.ox + shake.0 * view.zoom).round() as i32;
-    let y = (view.oy + shake.1 * view.zoom).round() as i32;
-    (x, y, (gfx::W * view.zoom).round() as i32, (gfx::H * view.zoom).round() as i32, fw, fh)
+    let x = ((view.ox + shake.0 * view.zoom) * k).round() as i32;
+    let y = ((view.oy + shake.1 * view.zoom) * k).round() as i32;
+    (x, y, (gfx::W * view.zoom * k).round() as i32, (gfx::H * view.zoom * k).round() as i32, fw, fh)
 }
 
 /// The colour behind everything this frame.
