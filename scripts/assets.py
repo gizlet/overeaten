@@ -97,6 +97,14 @@ POLY = [
     ("soy", "t3mJ20Q4YH", "Kenney", "1d9a7303-2313-4257-bfff-ca64afb79d37"),
 ]
 
+# Animated characters from Poly Pizza (all CC0 1.0), copied whole: the chef is
+# Quaternius's "Man" in a hat made in code.
+POLY_HEROES = [
+    ("Chef", "HMnuH5geEG", "Quaternius", "3746be88-6799-4817-929b-6bc067c47caa"),
+    ("Woman", "QeIc9Mzjzs", "Quaternius", "f3ef54fe-e8db-4ac3-9e1b-d3dca2398dcf"),
+    ("Student", "DgOCW9ZCRJ", "Quaternius", "1a8a9d55-9aa9-43c4-a031-d926e251d80a"),
+]
+
 # ambientCG materials (CC0 1.0), as (name in the game, asset id).
 MATERIALS = [
     ("floor_wood", "WoodFloor051"),
@@ -126,6 +134,8 @@ def sources():
         out.append((f"heroes/{repo}-LICENSE.txt", f"{base}/LICENSE.txt"))
     for name, _page, _who, fid in POLY:
         out.append((f"poly/{name}.glb", f"https://static.poly.pizza/{fid}.glb"))
+    for name, _page, _who, fid in POLY_HEROES:
+        out.append((f"poly-heroes/{name}.glb", f"https://static.poly.pizza/{fid}.glb"))
     for name, aid in MATERIALS:
         out.append((f"ambientcg/{aid}.zip", f"https://ambientcg.com/get?file={aid}_1K-JPG.zip"))
     return sorted(set(out))
@@ -152,7 +162,11 @@ def fetch():
         lock.write_text(json.dumps(hashes, indent=1, sort_keys=True) + "\n")
         print(f"wrote {lock.relative_to(ROOT)}")
     elif set(hashes) != set(SHA256):
-        sys.exit("the lock lists other files than the sources; delete it to re-pin")
+        gone = set(SHA256) - set(hashes)
+        if gone:
+            sys.exit(f"the lock lists files the sources no longer have: {sorted(gone)}")
+        lock.write_text(json.dumps(hashes, indent=1, sort_keys=True) + "\n")
+        print(f"pinned {len(set(hashes) - set(SHA256))} new files in {lock.relative_to(ROOT)}")
 
 
 # ---- glTF reading ------------------------------------------------------
@@ -455,6 +469,10 @@ def bake():
         strip_glb(SRC / "heroes" / f"{name}.glb", OUT / "heroes" / f"{name}.glb", ANIMS)
         shutil.copyfile(SRC / "heroes" / f"{repo}-LICENSE.txt", lic / f"{repo}-LICENSE.txt")
 
+    for name, _page, _who, _fid in POLY_HEROES:
+        shutil.copyfile(SRC / "poly-heroes" / f"{name}.glb", OUT / "heroes" / f"{name}.glb")
+        print(f"copied assets/heroes/{name}.glb")
+
     for name, aid in MATERIALS:
         with zipfile.ZipFile(SRC / "ambientcg" / f"{aid}.zip") as z:
             color = next(n for n in z.namelist() if n.endswith("_Color.jpg"))
@@ -476,6 +494,8 @@ def bake():
                      f"[{repo}](https://github.com/KayKit-Game-Assets/{repo}/tree/{sha}) |")
     for name, page, who, _fid in POLY:
         lines.append(f"| {name} | {who} | [Poly Pizza](https://poly.pizza/m/{page}) |")
+    for name, page, who, _fid in POLY_HEROES:
+        lines.append(f"| {name} (character) | {who} | [Poly Pizza](https://poly.pizza/m/{page}) |")
     for name, aid in MATERIALS:
         lines.append(f"| {name} texture | ambientCG | [{aid}](https://ambientcg.com/view?id={aid}) |")
     (lic / "CREDITS.md").write_text("\n".join(lines) + "\n")

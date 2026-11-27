@@ -171,17 +171,17 @@ impl Hero {
             let anims = ffi::LoadModelAnimations(c.as_ptr(), &mut count);
             let bones = model.skeleton.boneCount as usize;
             if bones == 0 || anims.is_null() || count == 0 || bones > 64 {
-                return Err(format!("{name}.glb has no usable skeleton or animations"));
+                return Err(format!("{name}.glb has no usable skeleton or animations ({bones} bones, {count} clips)"));
             }
             let bone_names: Vec<String> = (0..bones).map(|i| cname(&(*model.skeleton.bones.add(i)).name)).collect();
             let (mut pos, mut nrm, mut uv, mut ids, mut w, mut idx) = (vec![], vec![], vec![], vec![], vec![], vec![]);
+            let mut col: Vec<u8> = Vec::new();
             let mut tex = None;
             for m in 0..model.meshCount as usize {
                 let mesh = *model.meshes.add(m);
                 let n = mesh.vertexCount as usize;
                 if mesh.boneIndices.is_null()
                     || mesh.boneWeights.is_null()
-                    || mesh.texcoords.is_null()
                     || mesh.normals.is_null()
                 {
                     continue;
@@ -195,7 +195,17 @@ impl Hero {
                 let base = (pos.len() / 3) as u16;
                 pos.extend_from_slice(std::slice::from_raw_parts(mesh.vertices, n * 3));
                 nrm.extend_from_slice(std::slice::from_raw_parts(mesh.normals, n * 3));
-                uv.extend_from_slice(std::slice::from_raw_parts(mesh.texcoords, n * 2));
+                if mesh.texcoords.is_null() {
+                    uv.extend(std::iter::repeat_n(0.5, n * 2));
+                } else {
+                    uv.extend_from_slice(std::slice::from_raw_parts(mesh.texcoords, n * 2));
+                }
+                // Untextured models colour each part with its material, in linear light.
+                let c = (*(*model.materials.add(*model.meshMaterial.add(m) as usize)).maps).color;
+                let g = |x: u8| ((x as f32 / 255.0).powf(1.0 / 2.2) * 255.0).round() as u8;
+                for _ in 0..n {
+                    col.extend([g(c.r), g(c.g), g(c.b), 255]);
+                }
                 ids.extend_from_slice(bi);
                 w.extend_from_slice(bw);
                 if mesh.indices.is_null() {
@@ -213,10 +223,12 @@ impl Hero {
             ffi::SetTextureFilter(tex, ffi::TextureFilter::TEXTURE_FILTER_BILINEAR as i32);
             let ys = pos.chunks(3).map(|p| p[1]);
             let (foot, top) = ys.fold((f32::MAX, f32::MIN), |(a, b), y| (a.min(y), b.max(y)));
-            let bone = |n: &str| bone_names.iter().position(|b| b == n);
             // The belly: vertices bound to the hips, spine and chest, in the
             // middle of the torso, move out, most at the front.
-            let torso: Vec<usize> = ["hips", "spine", "chest"].iter().filter_map(|n| bone(n)).collect();
+            let lower: Vec<String> = bone_names.iter().map(|b| b.to_lowercase()).collect();
+            let torso: Vec<usize> = (0..bones)
+                .filter(|&i| ["hips", "spine", "chest", "abdomen", "torso"].iter().any(|k| lower[i].contains(k)))
+                .collect();
             let (y0, y1) = (foot + (top - foot) * 0.22, foot + (top - foot) * 0.55);
             let belly: Vec<f32> = (0..pos.len() / 3)
                 .flat_map(|v| {
@@ -231,22 +243,36 @@ impl Hero {
                     [x / d * s, 0.0, z / d * s * 1.3]
                 })
                 .collect();
-            let meshes = [0, 1].map(|_| upload(&pos, &nrm, &uv, &idx));
+            let meshes = [0, 1].map(|_| upload(&pos, &nrm, &uv, &col, &idx));
             let bind_inv = (0..bones).map(|i| srt_inv(&*model.skeleton.bindPose.add(i))).collect();
             let names: Vec<String> = (0..count as usize).map(|i| cname(&(*anims.add(i)).name)).collect();
-            let find = |want: &[&str]| want.iter().find_map(|n| names.iter().position(|x| x == n)).unwrap_or(0);
-            let ids_ = Ids {
-                idle: find(&["Idle", "Unarmed_Idle"]),
-                walk: find(&["Walking_A"]),
-                run: find(&["Running_A", "Walking_A"]),
-                eat: find(&["Use_Item", "Interact"]),
-                pick: find(&["PickUp", "Interact"]),
-                cheer: find(&["Cheer"]),
-                down: find(&["Death_C_Skeletons", "Lie_Down"]),
-                rise: find(&["Skeletons_Awaken_Standing", "Lie_StandUp", "Idle"]),
-                hurt: find(&["Hit_A"]),
+            // Clips are matched by name, ignoring case and any armature or
+            // character prefix ("CharacterArmature|Idle", "Man_Idle"); an exact
+            // name is preferred over a suffix.
+            let norm: Vec<String> = names.iter().map(|n| n.rsplit('|').next().unwrap_or(n).to_lowercase()).collect();
+            let find = |want: &[&str]| {
+                want.iter()
+                    .find_map(|w| {
+                        let suffix = format!("_{w}");
+                        norm.iter().position(|x| x == w).or_else(|| norm.iter().position(|x| x.ends_with(&suffix)))
+                    })
+                    .unwrap_or(0)
             };
-            let hand = bone("handslot.r").or_else(|| bone("hand.r")).unwrap_or(0);
+            let ids_ = Ids {
+                idle: find(&["idle", "unarmed_idle", "idle_neutral"]),
+                walk: find(&["walking_a", "walk"]),
+                run: find(&["running_a", "run"]),
+                eat: find(&["use_item", "interact", "punch", "yes"]),
+                pick: find(&["pickup", "interact", "punch_right", "punch"]),
+                cheer: find(&["cheer", "wave", "clapping", "jump"]),
+                down: find(&["death_c_skeletons", "lie_down", "death"]),
+                rise: find(&["skeletons_awaken_standing", "lie_standup", "standing", "idle"]),
+                hurt: find(&["hit_a", "hitrecieve", "hitreact", "no", "idle"]),
+            };
+            let hand = ["handslot.r", "hand.r", "wrist.r", "palm.r", "fist.r"]
+                .iter()
+                .find_map(|k| lower.iter().position(|b| b == k))
+                .unwrap_or(0);
             let mut h = Hero {
                 _model: model,
                 anims,
@@ -430,12 +456,12 @@ impl Hero {
     }
 }
 
-fn upload(pos: &[f32], nrm: &[f32], uv: &[f32], idx: &[u16]) -> Mesh {
+fn upload(pos: &[f32], nrm: &[f32], uv: &[f32], col: &[u8], idx: &[u16]) -> Mesh {
     let b = crate::mesh::Builder {
         pos: pos.to_vec(),
         nrm: nrm.to_vec(),
         uv: uv.to_vec(),
-        col: vec![255; pos.len() / 3 * 4],
+        col: col.to_vec(),
         idx: idx.to_vec(),
     };
     b.upload(true)

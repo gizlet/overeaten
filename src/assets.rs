@@ -46,7 +46,6 @@ pub struct Made {
     pub slats: usize,
     pub water: usize,
     pub paper: usize,
-    pub noren: usize,
     pub steel: usize,
 }
 
@@ -179,19 +178,6 @@ pub fn load(audio: bool) -> Result<(), String> {
             }
         }),
     );
-    let noren = add(
-        "noren",
-        make_texture(64, |u, v| {
-            let band = ((v - 0.62).abs() < 0.06) as i32 as f32;
-            let dot = (((u - 0.5) * 1.4).powi(2) + (v - 0.32).powi(2)).sqrt() < 0.16;
-            if band > 0.0 || dot {
-                (250, 244, 230, 255)
-            } else {
-                let k = 0.92 + hash(u * 21.0, v * 9.0) * 0.08;
-                ((34.0 * k) as u8, (52.0 * k) as u8, (96.0 * k) as u8, 255)
-            }
-        }),
-    );
     let steel = add(
         "steel",
         make_texture(32, |u, _| {
@@ -243,7 +229,7 @@ pub fn load(audio: bool) -> Result<(), String> {
             })
         })
         .flatten();
-    let made = Made { slats, water, paper, noren, steel };
+    let made = Made { slats, water, paper, steel };
     ASSETS
         .set(Assets { dir, props, textures, by_name, made, sounds, music })
         .map_err(|_| "assets loaded twice".to_string())

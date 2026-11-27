@@ -7,7 +7,7 @@ Everything here is original: the restaurants, the rooms, the tasks and the cards
 ## The loop
 
 1. **Title.** A meal plays by itself behind the logo.
-2. **Choose a hero.** Four heroes on a stage; locked ones stand in silhouette with what unlocks them.
+2. **Choose a hero.** Six heroes on a stage; locked ones stand in silhouette with what unlocks them.
 3. **Choose a room.** Its ticket shows the room's machinery, the main task, two side goals drawn for this visit, the admission, the closing time, today's menu, the star lines and the best score. The room plays itself behind the ticket.
 4. **Pay and eat.** Walk to the belts and take plates as they pass. Every dish has **points** and a **fullness**; the stomach digests steadily.
    - Different dishes within 5 s chain a **combo**: each link adds ×0.25 to the points, up to ×2.
@@ -49,16 +49,21 @@ Each dish rides a plate of its colour. All numbers live in `src/rules.rs`.
 
 ## Heroes
 
-All four share KayKit's 41-bone rig and its animations: walking, running, reaching, eating, cheering, being knocked down and, for the skeleton, falling apart and getting up. The belly grows rounder as the stomach fills and the body flushes red in danger.
+The four adventurers share KayKit's 41-bone rig and its animations: walking, running, reaching, eating, cheering, being knocked down and, for the skeleton, falling apart and getting up. The Office Worker and the Student are Quaternius characters with rigs of their own; the loader matches their clips and bones by name, and colours their untextured parts from their materials. The belly grows rounder as the stomach fills and the body flushes red in danger.
 
 | Hero | Model | Trait | Unlock |
 | --- | --- | --- | --- |
 | Traveller · 旅人 | Rogue (hooded) | Even at everything | From the start |
 | Iron-Gut Knight · 铁胃骑士 | Knight | A quarter more stomach, 7 s in the red, slower, steady on the leaning deck | 6 stars |
 | Digestion Mage · 消化法师 | Mage | Smaller stomach, digests 1.6× as fast, sees the kitchen's next plate | 12 stars |
+| Office Worker · 上班族 | Quaternius Woman | Walks fast, digests slowly | From the start |
+| Student · 学生 | Quaternius Character Animated | A tenth more points a plate, fills up faster | From the start |
 | Skeleton · 骷髅 | Skeleton Minion | Food falls through the ribs: half as filling and half the points; three bites within 2.5 s and it falls apart for 2 s | After a trip to hospital |
 
 ## Carousel Sushi: eight rooms
+
+As in a real conveyor-belt bar, the sushi chef works inside each loop: the counter's middle is a sunken well with a low work shelf of chopping boards, ready sushi, bowls, soy and rice tubs, and the chef reaches out to put each plate on the belt. The chef is scenery, not an opponent. Guests eat from the outside.
+
 
 | # | Room | Floor and machinery | Main task (kind) |
 | --- | --- | --- | --- |
@@ -90,12 +95,12 @@ Each room draws two side goals from its pool, of kinds other than its main task'
 
 ## Cards
 
-35 cards in four books, each in one of four rarities:
+39 cards in four books, each in one of four rarities:
 
 | Book | Cards |
 | --- | --- |
 | Rooms · 关卡 (16) | Clearing each room, and three stars in it |
-| Heroes · 主角 (8) | Clearing a room with each hero, and each hero's feat |
+| Heroes · 主角 (12) | Clearing a room with each hero, and each hero's feat |
 | Sushi · 寿司 (7) | Eating each dish once |
 | Secrets · 隐藏 (4) | The hospital, ending exactly full, an eight-dish combo, eating nothing at all |
 
@@ -139,7 +144,7 @@ The 3D scene fills the canvas from a high three-quarter camera that leans a litt
 
 ## Look
 
-Warm, chunky low-poly under toon light: KayKit's kitchen and furniture on ambientCG wood, tatami and plaster, Quaternius's sushi on glazed plates, steel belts with moving slats, indigo noren over the kitchen passes, warm windows by day, lantern halos by night, the sea around the ferry. Every surface uses one shader: texture × vertex colour, a two-step sun, up to six point lights and a rim of light; the hero gets an ink outline and a soft shadow.
+Warm, chunky low-poly under toon light, with paper lanterns hanging over the belts by day and soft contact shadows round counters, pillars and stools: KayKit's kitchen and furniture on ambientCG wood, tatami and plaster, Quaternius's sushi on glazed plates, steel belts with moving slats, indigo noren over the kitchen passes, warm windows by day, lantern halos by night, the sea around the ferry. Every surface uses one shader: texture × vertex colour, a two-step sun, up to six point lights and a rim of light; the hero gets an ink outline and a soft shadow.
 
 ## Platform
 

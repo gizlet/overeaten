@@ -214,7 +214,7 @@ pub struct HeroDef {
     pub ratings: [u8; 4],
 }
 
-pub const HEROES: [HeroDef; 4] = [
+pub const HEROES: [HeroDef; 6] = [
     HeroDef {
         id: "traveller",
         model: "Rogue_Hooded",
@@ -295,6 +295,42 @@ pub const HEROES: [HeroDef; 4] = [
         height: 1.55,
         accent: 0xC9C2A7,
         ratings: [5, 3, 4, 1],
+    },
+    HeroDef {
+        id: "office",
+        model: "Woman",
+        name: Text::new("上班族", "Office Worker"),
+        perk: Text::new("午休就一会儿：走得快，但消化慢。", "On a lunch break: walks fast, digests slowly."),
+        stomach: 1.0,
+        digest: 0.85,
+        walk: 450.0,
+        hospital_s: 5.0,
+        value: 1.0,
+        foresight: false,
+        steady: false,
+        fragile: false,
+        unlock: Unlock::Start,
+        height: 1.6,
+        accent: 0xE07A5F,
+        ratings: [3, 2, 5, 3],
+    },
+    HeroDef {
+        id: "student",
+        model: "Student",
+        name: Text::new("学生", "Student"),
+        perk: Text::new("正在长身体：每盘多 10% 分，但更容易撑。", "Still growing: a tenth more points a plate, and fills up faster."),
+        stomach: 1.12,
+        digest: 1.0,
+        walk: 390.0,
+        hospital_s: 5.0,
+        value: 1.1,
+        foresight: false,
+        steady: false,
+        fragile: false,
+        unlock: Unlock::Start,
+        height: 1.5,
+        accent: 0x4A90C2,
+        ratings: [2, 3, 3, 4],
     },
 ];
 
@@ -513,7 +549,7 @@ const fn card(id: &'static str, name: Text, condition: Text, book: Book, rarity:
 use Book as B;
 use Rarity as R;
 
-pub const CARDS: [Card; 35] = [
+pub const CARDS: [Card; 39] = [
     card("sushi.1.clear", Text::new("开张大吉", "Grand Opening"), Text::new("通过第 1 关「开张」。", "Clear room 1, Opening Day."), B::Levels, R::Common, Art::Level(0)),
     card("sushi.1.ace", Text::new("开张满堂彩", "Opening Ace"), Text::new("三星通过第 1 关。", "Three stars in room 1."), B::Levels, R::Holo, Art::Level(0)),
     card("sushi.2.clear", Text::new("绕柱而行", "Round the Pillars"), Text::new("通过第 2 关「柱廊」。", "Clear room 2, Colonnade."), B::Levels, R::Common, Art::Level(1)),
@@ -538,6 +574,10 @@ pub const CARDS: [Card; 35] = [
     card("hero.mage.feat", Text::new("消化大师", "Master of Digestion"), Text::new("用法师一顿吃满 20 盘。", "Eat 20 plates in one meal as the Mage."), B::Heroes, R::Holo, Art::Hero(2)),
     card("hero.skeleton.first", Text::new("有骨气", "Backbone"), Text::new("用骷髅通过任意一关。", "Clear any room as the Skeleton."), B::Heroes, R::Rare, Art::Hero(3)),
     card("hero.skeleton.feat", Text::new("散而不倒", "Falls Apart, Carries On"), Text::new("用骷髅散架 3 次，仍然过关。", "Fall apart three times as the Skeleton and still clear the room."), B::Heroes, R::Holo, Art::Hero(3)),
+    card("hero.office.first", Text::new("午休开饭", "Lunch Break"), Text::new("用上班族通过任意一关。", "Clear any room as the Office Worker."), B::Heroes, R::Rare, Art::Hero(4)),
+    card("hero.office.feat", Text::new("准时回工位", "Back on Time"), Text::new("用上班族在 60 秒内完成主任务并过关。", "Clear a room as the Office Worker with the task done within 60 s."), B::Heroes, R::Holo, Art::Hero(4)),
+    card("hero.student.first", Text::new("放学开饭", "After School"), Text::new("用学生通过任意一关。", "Clear any room as the Student."), B::Heroes, R::Rare, Art::Hero(5)),
+    card("hero.student.feat", Text::new("六连大胃", "Six in a Row"), Text::new("用学生过关，且连吃达到 6 连。", "Clear a room as the Student with a six-dish combo."), B::Heroes, R::Holo, Art::Hero(5)),
     card("dish.salmon", Text::new("三文鱼握", "Salmon Nigiri"), Text::new("吃到一盘三文鱼握。", "Eat a salmon nigiri."), B::Dishes, R::Common, Art::Dish(0)),
     card("dish.tuna", Text::new("金枪鱼握", "Tuna Nigiri"), Text::new("吃到一盘金枪鱼握。", "Eat a tuna nigiri."), B::Dishes, R::Common, Art::Dish(1)),
     card("dish.octopus", Text::new("章鱼握", "Octopus Nigiri"), Text::new("吃到一盘章鱼握。", "Eat an octopus nigiri."), B::Dishes, R::Common, Art::Dish(2)),
