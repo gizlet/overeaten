@@ -288,6 +288,14 @@ impl Round {
         (DISHES[dish].value as f32 * mult * self.hero_def().value).round() as i32
     }
 
+    pub fn food_points(&self) -> i32 {
+        self.tally.eaten
+            .iter()
+            .enumerate()
+            .map(|(dish, &count)| self.points_of(dish, 1) * count as i32)
+            .sum()
+    }
+
     fn rand(&mut self) -> u32 {
         let mut x = self.rng;
         x ^= x << 13;
@@ -967,6 +975,15 @@ mod tests {
         assert_eq!(r.tally.score, DISHES[0].value + second);
         eat_now(&mut r, 1);
         assert_eq!(r.combo, 1, "the same dish twice breaks the chain");
+    }
+
+    #[test]
+    fn repeated_dishes_have_no_combo_bonus_for_the_skeleton() {
+        let mut round = Round::new(0, 3, 7);
+        eat_now(&mut round, 0);
+        eat_now(&mut round, 0);
+        assert_eq!(round.tally.score, 18);
+        assert_eq!(round.food_points(), round.tally.score);
     }
 
     #[test]

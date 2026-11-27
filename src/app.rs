@@ -547,8 +547,7 @@ impl App {
         self.save.meals += 1;
         self.save.store();
         let new_heroes = (0..HEROES.len()).filter(|&i| !unlocked_before[i] && self.save.hero_unlocked(i)).collect();
-        let food: i32 = (0..KINDS).map(|d| DISHES[d].value * round.tally.eaten[d] as i32).sum();
-        let food = (food as f32 * round.hero_def().value).round() as i32;
+        let food = round.food_points();
         self.summary = Some(Summary {
             level,
             outcome,

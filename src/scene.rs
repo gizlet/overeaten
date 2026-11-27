@@ -569,7 +569,8 @@ impl Scene {
         let floor = r.layout.floor_at(r.player.pos);
         let feet = w(r.player.pos, floor);
         let hd = r.hero_def();
-        let m = hero.place(feet, r.player.yaw, hd.height).then(&self.root);
+        let placement = hero.place(feet, r.player.yaw, hd.height);
+        let m = placement.then(&self.root);
         let red = r.danger.is_some();
         let pulse = (t * 6.0).sin() * 0.5 + 0.5;
         let look = Look {
@@ -581,11 +582,11 @@ impl Scene {
         hero.draw(gl, &m, &look, Some(1.6));
         if let Some(e) = &r.player.eating {
             if e.t < crate::rules::RULES.bite_s {
-                let hand = m.point(hero.hand_pos);
-                let from = self.root.point(w(e.from, e.from_h + 1.0));
+                let hand = placement.point(hero.hand_pos);
+                let from = w(e.from, e.from_h + 1.0);
                 let k = (e.t / 0.2).min(1.0);
                 let p = from.lerp(hand, k);
-                self.food(gl, p, r.player.yaw, 0.9, e.dish, true, t, false);
+                food_at(gl, &self.root, p, r.player.yaw, 0.9, e.dish, true, t, false);
             }
         }
         // Lanterns glow in the dark.
@@ -604,7 +605,7 @@ impl Scene {
             for (bi, b) in r.layout.belts.iter().enumerate() {
                 let (at, _) = b.point(b.serve_s());
                 let p = self.root.point(w(at, b.top() + 105.0 + (t * 2.0).sin() * 4.0));
-                self.food(gl, p, t, 0.85, r.next_dish[bi], true, t, true);
+                food_at(gl, &M4::ID, p, t, 0.85, r.next_dish[bi], true, t, true);
             }
         }
     }
@@ -621,12 +622,6 @@ impl Scene {
                 gl.draw(self.ring, None, &m, &Look { color: rgb(0xFFD54A), emissive: 1.4, ..Look::default() });
             });
         }
-    }
-
-    /// A piece of sushi standing on `at`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn food(&self, gl: &Gl, at: V3, yaw: f32, s: f32, dish: usize, seen: bool, t: f32, ghost: bool) {
-        food_at(gl, if ghost { &M4::ID } else { &self.root }, at, yaw, s, dish, seen, t, ghost);
     }
 }
 
