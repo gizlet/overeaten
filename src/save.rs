@@ -12,6 +12,15 @@ use std::path::PathBuf;
 
 const FILE: &str = "progress.txt";
 
+/// Cards of version 0.1 and what they became. The old ids stay in the file.
+const LEGACY: [(&str, &[&str]); 5] = [
+    ("sushi.golden", &["dish.golden"]),
+    ("sushi.ambulance", &["secret.hospital"]),
+    ("sushi.moneys-worth", &["sushi.1.clear"]),
+    ("sushi.light-eater", &["hero.traveller.feat"]),
+    ("sushi.rainbow", &["dish.salmon", "dish.tuna", "dish.shrimp", "dish.tamago"]),
+];
+
 #[derive(Default)]
 pub struct Save {
     dir: PathBuf,
@@ -47,6 +56,15 @@ impl Save {
             match parts.as_slice() {
                 ["card", id] => {
                     self.cards.insert(id.to_string());
+                    for (old, new) in LEGACY {
+                        if *id == old {
+                            self.cards.extend(new.iter().map(|n| n.to_string()));
+                        }
+                    }
+                    // A trip to hospital in 0.1 counts toward the skeleton.
+                    if *id == "sushi.ambulance" {
+                        self.hospital = self.hospital.max(1);
+                    }
                 }
                 ["stars", id, n] => {
                     if let Ok(n) = n.parse() {
@@ -59,7 +77,7 @@ impl Save {
                     }
                 }
                 ["hero", n] => self.hero = n.parse().unwrap_or(0).min(HEROES.len() - 1),
-                ["hospital", n] => self.hospital = n.parse().unwrap_or(0),
+                ["hospital", n] => self.hospital = self.hospital.max(n.parse().unwrap_or(0)),
                 ["meals", n] => self.meals = n.parse().unwrap_or(0),
                 ["lang", l] => self.lang = l.to_string(),
                 _ => {}
@@ -153,6 +171,20 @@ mod tests {
         assert_eq!(t.stars_of(0), 3);
         assert_eq!(t.best_of(0), Some(251));
         assert!(t.level_open(1) && !t.level_open(2));
+    }
+
+    #[test]
+    fn version_one_saves_keep_their_cards() {
+        let old = "meals 4\nbest 172\nlang zh\ncard sushi.ambulance\ncard sushi.first-plate\ncard sushi.golden\ncard sushi.moneys-worth\n";
+        let mut s = Save::default();
+        s.parse(old);
+        for id in ["dish.golden", "secret.hospital", "sushi.1.clear", "sushi.golden"] {
+            assert!(s.has(id), "{id}");
+        }
+        assert_eq!(s.meals, 4);
+        assert_eq!(s.hospital, 1, "the old hospital card unlocks the skeleton");
+        assert!(s.hero_unlocked(3));
+        assert!(s.best.is_empty(), "the old single best score is not a room's");
     }
 
     #[test]

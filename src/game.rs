@@ -405,6 +405,12 @@ impl Round {
     fn judge(&mut self, closing: bool) {
         self.tally.fullness = self.fullness;
         let main = self.def().main;
+        // A rule that holds for the whole meal still binds once the target is reached.
+        if self.main_state == State::Done && matches!(main, Goal::NoRepeat { .. }) && self.tally.repeated {
+            self.main_state = State::Failed;
+            self.finish(Outcome::Broke);
+            return;
+        }
         let was = self.main_state;
         if was == State::Open {
             let s = main.state(&self.tally, closing);
@@ -999,6 +1005,17 @@ mod tests {
     fn breaking_the_rule_ends_the_meal() {
         let mut r = Round::new(5, 0, 5);
         eat_now(&mut r, 2);
+        eat_now(&mut r, 2);
+        assert_eq!(r.outcome, Some(Outcome::Broke));
+    }
+
+    #[test]
+    fn the_no_repeat_rule_holds_after_the_target() {
+        let mut r = Round::new(5, 0, 5);
+        r.tally.score = 200;
+        eat_now(&mut r, 2);
+        assert_eq!(r.main_state, State::Done);
+        assert_eq!(r.outcome, None);
         eat_now(&mut r, 2);
         assert_eq!(r.outcome, Some(Outcome::Broke));
     }

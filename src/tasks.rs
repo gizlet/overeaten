@@ -360,14 +360,27 @@ impl Goal {
     }
 }
 
+/// Whether two goals cannot both be met in one meal.
+pub fn conflicts(a: &Goal, b: &Goal) -> bool {
+    let one_way = |a: &Goal, b: &Goal| match (a, b) {
+        (Goal::Light, Goal::Brave(_) | Goal::Risk { .. }) => true,
+        (Goal::Avoid(d), Goal::Collect) => *d < EVERYDAY,
+        // Avoiding one dish leaves six kinds to eat.
+        (Goal::Avoid(_), Goal::Kinds(n)) => *n as usize >= KINDS,
+        _ => false,
+    };
+    one_way(a, b) || one_way(b, a)
+}
+
 /// Draws two side goals of different kinds from `pool`, neither of the main
-/// task's kind. `roll` gives random numbers.
+/// task's kind nor contradicting it or each other. `roll` gives random numbers.
 pub fn draw_goals(main: &Goal, pool: &[Goal], mut roll: impl FnMut() -> u32) -> Vec<Goal> {
-    let mut left: Vec<Goal> = pool.iter().copied().filter(|g| g.kind() != main.kind()).collect();
+    let mut left: Vec<Goal> =
+        pool.iter().copied().filter(|g| g.kind() != main.kind() && !conflicts(main, g)).collect();
     let mut out = Vec::new();
     while out.len() < 2 && !left.is_empty() {
         let g = left.remove(roll() as usize % left.len());
-        left.retain(|o| o.kind() != g.kind());
+        left.retain(|o| o.kind() != g.kind() && !conflicts(&g, o));
         out.push(g);
     }
     out
@@ -413,6 +426,29 @@ mod tests {
         assert_eq!(g.state(&t, true), State::Done);
         let t = Tally { fullness: 101.0, plates: 4, ..Tally::default() };
         assert_eq!(g.state(&t, true), State::Failed);
+    }
+
+    #[test]
+    fn no_room_draws_contradictory_goals() {
+        for def in crate::rules::LEVELS.iter() {
+            let mut n = 7u32;
+            for _ in 0..200 {
+                let gs = draw_goals(&def.main, def.pool, || {
+                    n ^= n << 13;
+                    n ^= n >> 17;
+                    n ^= n << 5;
+                    n
+                });
+                assert_eq!(gs.len(), 2, "{}", def.id);
+                for g in &gs {
+                    assert!(!conflicts(&def.main, g), "{}: {g:?} against the task", def.id);
+                }
+                assert!(!conflicts(&gs[0], &gs[1]), "{}: {gs:?}", def.id);
+            }
+        }
+        assert!(conflicts(&Goal::Avoid(4), &Goal::Collect));
+        assert!(conflicts(&Goal::Brave(2.0), &Goal::Light));
+        assert!(!conflicts(&Goal::Avoid(4), &Goal::Kinds(5)));
     }
 
     #[test]
