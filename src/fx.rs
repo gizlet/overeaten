@@ -112,12 +112,13 @@ impl Fx {
         self.bump_plates = (self.bump_plates - dt * 3.0).max(0.0);
     }
 
-    pub fn offset(&mut self) -> (f32, f32) {
+    /// The shake this frame, without advancing anything.
+    pub fn peek_offset(&self) -> (f32, f32) {
         if self.shake <= 0.0 {
             return (0.0, 0.0);
         }
         let k = self.shake * self.shake * 5.0;
-        (self.spread(k), self.spread(k))
+        ((self.time * 93.0).sin() * k, (self.time * 71.0).cos() * k)
     }
 
     pub fn shake(&mut self, amount: f32) {

@@ -2,7 +2,7 @@
 //! handheld's own evdev devices, merged into one pad each frame.
 //!
 //! Keyboard: arrows or WASD move; Space, Enter or K is A; Backspace or J is B;
-//! I is X; U is Y; Esc or P is Start; Tab is Select.
+//! I is X; U is Y; Q and E are L1 and R1; Esc or P is Start; Tab is Select.
 
 use raylib_sys::{self as ffi, GamepadAxis as Axis, GamepadButton as G, KeyboardKey as K};
 
@@ -51,7 +51,7 @@ impl RawPad {
     }
 }
 
-const KEYS: [(K, Button); 18] = [
+const KEYS: [(K, Button); 20] = [
     (K::KEY_UP, Button::Up),
     (K::KEY_W, Button::Up),
     (K::KEY_DOWN, Button::Down),
@@ -70,6 +70,8 @@ const KEYS: [(K, Button); 18] = [
     (K::KEY_ESCAPE, Button::Start),
     (K::KEY_P, Button::Start),
     (K::KEY_TAB, Button::Select),
+    (K::KEY_Q, Button::L1),
+    (K::KEY_E, Button::R1),
 ];
 
 const PAD: [(G, Button); 12] = [

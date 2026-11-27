@@ -137,10 +137,6 @@ pub fn circle(x: f32, y: f32, r: f32, c: Color) {
     unsafe { ffi::DrawCircleV(v(x, y), r, c) }
 }
 
-pub fn ellipse(x: f32, y: f32, rx: f32, ry: f32, c: Color) {
-    unsafe { ffi::DrawEllipseV(v(x, y), rx, ry, c) }
-}
-
 /// A ring between two radii, from `a0` to `a1` degrees (0 is right, clockwise on screen).
 pub fn ring(x: f32, y: f32, r0: f32, r1: f32, a0: f32, a1: f32, c: Color) {
     unsafe { ffi::DrawRing(v(x, y), r0, r1, a0, a1, segs(r1) * 2, c) }
@@ -155,11 +151,6 @@ pub fn tri(a: (f32, f32), b: (f32, f32), c: (f32, f32), col: Color) {
     let cross = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
     let (b, c) = if cross > 0.0 { (c, b) } else { (b, c) };
     unsafe { ffi::DrawTriangle(v(a.0, a.1), v(b.0, b.1), v(c.0, c.1), col) }
-}
-
-/// A quadratic curve through a control point.
-pub fn curve(p1: (f32, f32), c: (f32, f32), p2: (f32, f32), thick: f32, col: Color) {
-    unsafe { ffi::DrawSplineSegmentBezierQuadratic(v(p1.0, p1.1), v(c.0, c.1), v(p2.0, p2.1), thick, col) }
 }
 
 pub fn grad_v(x: f32, y: f32, w: f32, h: f32, top: Color, bottom: Color) {
@@ -347,35 +338,4 @@ pub fn text_wrapped(s: &str, x: f32, y: f32, w: f32, size: f32, line_h: f32, col
         text(l, ax, y + i as f32 * line_h, size, color, align);
     }
     lines.len() as f32 * line_h
-}
-
-// ---- Textures ----------------------------------------------------------
-
-pub const WHITE: Color = rgb(0xFFFFFF);
-
-/// Draws part of a texture into a rectangle; a negative source width mirrors it.
-pub fn tex(
-    t: raylib_sys::Texture2D,
-    src: (f32, f32, f32, f32),
-    dst: (f32, f32, f32, f32),
-    origin: (f32, f32),
-    tint: Color,
-) {
-    unsafe {
-        ffi::DrawTexturePro(
-            t,
-            Rectangle { x: src.0, y: src.1, width: src.2, height: src.3 },
-            Rectangle { x: dst.0, y: dst.1, width: dst.2, height: dst.3 },
-            v(origin.0, origin.1),
-            0.0,
-            tint,
-        )
-    }
-}
-
-/// Draws what `f` draws with additive blending, for light.
-pub fn additive(f: impl FnOnce()) {
-    unsafe { ffi::BeginBlendMode(ffi::BlendMode::BLEND_ADDITIVE as i32) };
-    f();
-    unsafe { ffi::EndBlendMode() };
 }
