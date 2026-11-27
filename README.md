@@ -95,8 +95,8 @@ Install Python 3.11 or newer, [zig](https://ziglang.org), and the Rust `aarch64-
 
 ```sh
 GIZLET_RAYLIB_LIB=/path/to/folder/with/libraylib.so scripts/package.sh
-scp dist/io.gizlet.overeaten-0.2.0-aarch64-unknown-linux-gnu-lite.gzl root@DEVICE:/tmp/
-ssh root@DEVICE gizlet install /tmp/io.gizlet.overeaten-0.2.0-aarch64-unknown-linux-gnu-lite.gzl
+scp dist/io.gizlet.overeaten-0.2.1-aarch64-unknown-linux-gnu-lite.gzl root@DEVICE:/tmp/
+ssh root@DEVICE gizlet install /tmp/io.gizlet.overeaten-0.2.1-aarch64-unknown-linux-gnu-lite.gzl
 ```
 
 Hold Select + Start for two seconds to quit. The rendering follows [gizlet/little-prince](https://github.com/gizlet/little-prince)'s measurements on the R36S: 48 render batches in rotation, CPU skinning into two buffers in turn, and the static room merged by texture into a few meshes (about 20,000 triangles in 10 to 20 draw calls; a meal draws 35,000 to 55,000 triangles). The frame rate on the handheld has not been measured for this version yet; the stats panel shows it.

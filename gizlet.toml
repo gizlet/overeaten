@@ -1,5 +1,5 @@
 id = "io.gizlet.overeaten"
-version = "0.2.0"
+version = "0.2.1"
 name = "Overeaten"
 category = "game"
 description = "A 3D all-you-can-eat game: pick a hero, pay at the door and clear eight rooms of a conveyor-belt sushi bar without eating yourself into hospital."
