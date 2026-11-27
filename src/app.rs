@@ -68,6 +68,8 @@ pub struct App {
     pub fade: f32,
     pub save: Save,
     pub heroes: Vec<Hero>,
+    /// The sushi chef inside the belts.
+    pub chef: Option<Hero>,
     pub hero_sel: usize,
     pub level_sel: usize,
     /// Eases toward `level_sel`, for sliding the tickets.
@@ -117,6 +119,9 @@ impl App {
         };
         let gl = Gl::new();
         let mut heroes = load_heroes()?;
+        let chef = Hero::load(&crate::assets::get().dir.join("heroes/Chef.glb"))
+            .map_err(|e| eprintln!("overeaten: no chef: {e}"))
+            .ok();
         let mut portraits = Portraits::new();
         portraits.render_all(&gl, &mut heroes);
         let hero_sel = if save.hero_unlocked(save.hero) { save.hero } else { 0 };
@@ -127,6 +132,7 @@ impl App {
             screen_t: 0.0,
             fade: 1.0,
             heroes,
+            chef,
             hero_sel,
             level_sel: 0,
             level_pos: 0.0,
@@ -341,6 +347,11 @@ impl App {
                 }
                 _ => {}
             }
+        }
+        if let Some(c) = &mut self.chef {
+            let since = self.round.as_ref().map_or(9.0, |r| r.t - r.last_served);
+            let act = if since < 0.8 { Act::Eat(since / 0.8) } else { Act::Idle };
+            c.update(dt, act, 0.0);
         }
         self.update_music();
     }
@@ -635,6 +646,7 @@ impl App {
     pub fn book_cols(&self) -> usize {
         match BOOKS[self.album_book] {
             Book::Levels => 8,
+            Book::Heroes => 6,
             _ => 4,
         }
     }

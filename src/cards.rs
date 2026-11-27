@@ -25,7 +25,7 @@ pub struct Portraits {
 /// Every card face's picture.
 fn arts() -> Vec<Art> {
     let mut v: Vec<Art> = (0..8).map(Art::Level).collect();
-    v.extend((0..4).map(Art::Hero));
+    v.extend((0..crate::rules::HEROES.len()).map(Art::Hero));
     v.extend((0..DISHES.len()).map(Art::Dish));
     v.extend([Art::Ambulance, Art::Exact, Art::Combo, Art::Empty]);
     v

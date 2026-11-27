@@ -296,10 +296,10 @@ impl Layout {
                 l
             }
             3 => {
-                let mut upper = belt(750.0, 262.0, 280.0, 70.0, 1.0);
+                let mut upper = belt(750.0, 278.0, 280.0, 80.0, 1.0);
                 upper.floor = 40.0;
                 upper.weights = [4, 4, 2, 2, 1, 4];
-                let mut lower = belt(750.0, 730.0, 280.0, 70.0, -1.0);
+                let mut lower = belt(750.0, 730.0, 280.0, 80.0, -1.0);
                 lower.weights = [2, 2, 3, 3, 4, 1];
                 let mut l = Layout::base(vec![upper, lower]);
                 l.platforms.push(Platform { x: 140.0, y: 120.0, w: 1220.0, h: 315.0, height: 40.0 });

@@ -67,16 +67,16 @@ pub fn draw3d(app: &App, view: View) {
         Screen::Title | Screen::Levels | Screen::Dining | Screen::Result => {
             let (Some(sc), Some(r)) = (&app.scene, &app.round) else { return };
             begin3d(&sc.cam, x, y, w, h, fh);
-            sc.draw(&app.gl, r, &app.heroes[r.hero], app.t);
+            sc.draw(&app.gl, r, &app.heroes[r.hero], app.chef.as_ref(), app.t);
             end3d(fw, fh);
         }
         Screen::Heroes => {
-            let cam = Camera { eye: v3(0.0, 2.1, 8.4), target: v3(0.0, 0.62, 0.0), fovy: 0.6 };
+            let cam = hero_cam();
             begin3d(&cam, x, y, w, h, fh);
             let mut light = Lighting::day();
             light.sun_dir = v3(-0.3, 0.8, 0.6).norm();
             let sel = app.hero_pos;
-            light.add_light(v3((sel - 1.5) * 1.55, 3.0, 1.0), 4.0, rgb(0xFFE7B0));
+            light.add_light(v3(hero_px(sel), 3.0, 1.0), 4.0, rgb(0xFFE7B0));
             app.gl.light(&light, cam.eye);
             let stage = STAGE.with(|s| {
                 *s.get_or_init(|| {
@@ -87,10 +87,10 @@ pub fn draw3d(app: &App, view: View) {
             });
             let a = crate::assets::get();
             for i in 0..HEROES.len() {
-                let px = (i as f32 - 1.5) * 1.55;
+                let px = hero_px(i as f32);
                 let chosen = i == app.hero_sel;
                 let lift = if chosen { 0.08 } else { 0.0 };
-                let disc = M4::scale(0.62, 1.0, 0.62).then(&M4::translate(v3(px, lift, 0.0)));
+                let disc = M4::scale(0.5, 1.0, 0.5).then(&M4::translate(v3(px, lift, 0.0)));
                 let wood = Some(a.texture(a.tex("counter")));
                 app.gl.draw(stage, wood, &disc, &Look { emissive: if chosen { 0.25 } else { 0.0 }, ..Look::default() });
                 let open = app.save.hero_unlocked(i);
@@ -199,7 +199,7 @@ fn heroes(app: &App) {
     let h = &HEROES[i];
     let open = app.save.hero_unlocked(i);
     for k in 0..HEROES.len() {
-        let x = 318.0 + (k as f32 - 1.5) * 142.0;
+        let x = hero_screen_x(k);
         let sel = k == i;
         let c = if sel { MUSTARD } else { fade(CREAM, 0.6) };
         if app.save.hero_unlocked(k) {
@@ -233,6 +233,22 @@ fn heroes(app: &App) {
     }
     let [a, b, x] = app.labels;
     ui::prompts(&[(a, app.tr(tx::CHOOSE)), (b, app.tr(tx::BACK)), (x, app.tr(tx::ALBUM))], true);
+}
+
+const HERO_STEP: f32 = 1.2;
+
+fn hero_cam() -> Camera {
+    Camera { eye: v3(0.0, 2.2, 9.6), target: v3(0.0, 0.62, 0.0), fovy: 0.6 }
+}
+
+/// Where hero `i` stands on the stage, in metres from the middle.
+fn hero_px(i: f32) -> f32 {
+    (i - (HEROES.len() as f32 - 1.0) / 2.0) * HERO_STEP
+}
+
+fn hero_screen_x(i: usize) -> f32 {
+    let c = hero_cam().view_proj(4.0 / 3.0).project(v3(hero_px(i as f32), 0.0, 0.0));
+    (c[0] / c[3] + 1.0) * 320.0
 }
 
 // ---- Rooms ----------------------------------------------------------------
@@ -701,7 +717,11 @@ fn album(app: &App) {
     gfx::text(&reward, 616.0, 58.0, 14.0, if done { GOLD } else { fade(CREAM, 0.6) }, Align::Right);
     let ids = app.book_cards();
     let cols = app.book_cols();
-    let (cw, chh, gap) = if cols == 8 { (66.0, 92.0, 8.0) } else { (104.0, 146.0, 20.0) };
+    let (cw, chh, gap) = match cols {
+        8 => (66.0, 92.0, 8.0),
+        6 => (88.0, 124.0, 12.0),
+        _ => (104.0, 146.0, 20.0),
+    };
     let total = cols as f32 * cw + (cols - 1) as f32 * gap;
     let x0 = 320.0 - total / 2.0;
     for (k, &ci) in ids.iter().enumerate() {
