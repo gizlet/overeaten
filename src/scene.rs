@@ -13,7 +13,7 @@ use crate::level::{Layout, Prop as P, Shape, BELT_W, RIM, ROOM, WALK};
 use crate::m3::{v3, M4, V3};
 use crate::mesh::{Batch, Builder, Stadium};
 use crate::render::{self, rgb, scaled, Camera, Gl, Lighting, Look};
-use crate::rules::{Hue, DISHES, GOLDEN, LEVELS};
+use crate::rules::{Hue, DISHES, EVERYDAY, GOLDEN, LEVELS};
 use raylib_sys::{self as ffi, Color, Mesh};
 use std::f32::consts::{FRAC_PI_2, PI};
 
@@ -46,8 +46,11 @@ pub struct Scene {
     glow: Vec<(Mesh, usize)>,
     belts: Vec<(Mesh, f32)>,
     water: Vec<Mesh>,
+    /// Soft dark rings on the floor round the counters.
+    shade: Vec<Mesh>,
     door_panel: Mesh,
     ring: Mesh,
+    hat: Mesh,
     pub tris: usize,
     pub lighting: Lighting,
     pub cam: Camera,
@@ -206,6 +209,15 @@ impl Scene {
             }
         }
 
+        // Paper lanterns hanging over each belt in the day rooms.
+        if l.dark <= 0.0 && !l.deck {
+            for b in &l.belts {
+                for dx in [-0.55, 0.55] {
+                    let at = v3(b.cx / 100.0 + dx * b.half / 100.0, 2.95, b.cy / 100.0);
+                    put(&mut st, a, "lantern_hanging", at, 0.0, 0.7, WHITE);
+                }
+            }
+        }
         // Light: daylight, or lanterns at night.
         let mut lighting = Lighting::day();
         let mut clear = rgb(0x2A2026);
@@ -226,6 +238,16 @@ impl Scene {
             clear = rgb(0x6FA6C9);
         }
 
+        if l.dark <= 0.0 && !l.deck {
+            for b in &l.belts {
+                for dx in [-0.55, 0.55] {
+                    let at = v3(b.cx / 100.0 + dx * b.half / 100.0, 2.2, b.cy / 100.0);
+                    lighting.add_light(at, 3.4, rgb(0xC8925A));
+                }
+            }
+            lighting.sun = rgb(0xF4E2C8);
+            lighting.shade = rgb(0x6E6488);
+        }
         let upload = |b: &Batch| -> Vec<(Mesh, usize)> {
             b.groups.iter().flat_map(|(t, list)| list.iter().map(move |bb| (bb.upload(false), *t))).collect()
         };
@@ -241,6 +263,19 @@ impl Scene {
                 let mut bb = Builder::default();
                 s.band(&mut bb, -BELT_W / 100.0, BELT_W / 100.0, b.top() / 100.0 + 0.004, WHITE, 0.25);
                 (bb.upload(false), b.dir)
+            })
+            .collect();
+        let shade = l
+            .belts
+            .iter()
+            .map(|b| {
+                let s = stadium(b);
+                let y = b.floor / 100.0 + 0.006;
+                let rim = RIM / 100.0;
+                let mut bb = Builder::default();
+                s.band(&mut bb, rim, rim + 0.1, y, Color { r: 22, g: 14, b: 20, a: 120 }, 1.0);
+                s.band(&mut bb, rim + 0.1, rim + 0.3, y, Color { r: 22, g: 14, b: 20, a: 45 }, 1.0);
+                bb.upload(false)
             })
             .collect();
         let mut water = Vec::new();
@@ -281,14 +316,23 @@ impl Scene {
             }
             b.upload(false)
         };
+        let hat = {
+            let mut b = Builder::default();
+            let white = rgb(0xFBFAF6);
+            b.cylinder(v3(0.0, 0.0, 0.0), 0.1, 0.12, 16, white, white);
+            b.cylinder(v3(0.0, 0.1, 0.0), 0.14, 0.1, 16, white, white);
+            b.upload(false)
+        };
         Scene {
             level,
             statics,
             glow: glow_meshes,
             belts,
             water,
+            shade,
             door_panel,
             ring,
+            hat,
             tris,
             lighting,
             cam: Self::camera_for(&l, V2::new(750.0, 600.0)),
@@ -405,34 +449,6 @@ impl Scene {
                 put(st, a, "kitchencabinet", v3(x, 0.0, 0.02), 0.0, s, WHITE);
             }
         }
-        // The pass over each belt: two posts, a lintel and a curtain.
-        for b in &l.belts {
-            let (at, _) = b.point(b.serve_s());
-            let p = w(at, b.floor);
-            let top = b.top() / 100.0;
-            let wood = a.tex("counter");
-            let bb = st.get(wood, 200);
-            let dark = rgb(0x4A2F22);
-            for dx in [-0.5, 0.5] {
-                bb.cuboid(v3(p.x + dx - 0.05, b.floor / 100.0, p.z - 0.05), v3(p.x + dx + 0.05, top + 0.85, p.z + 0.05), dark, 1.0, false);
-            }
-            bb.cuboid(v3(p.x - 0.62, top + 0.78, p.z - 0.07), v3(p.x + 0.62, top + 0.9, p.z + 0.07), dark, 1.0, true);
-            let nb = st.get(a.made.noren, 64);
-            for k in 0..3 {
-                let xa = p.x - 0.45 + k as f32 * 0.3;
-                let xb = xa + 0.28;
-                nb.quad(
-                    [v3(xa, top + 0.32, p.z + 0.075), v3(xb, top + 0.32, p.z + 0.075), v3(xb, top + 0.78, p.z + 0.075), v3(xa, top + 0.78, p.z + 0.075)],
-                    [(k as f32 / 3.0, 1.0), ((k + 1) as f32 / 3.0, 1.0), ((k + 1) as f32 / 3.0, 0.0), (k as f32 / 3.0, 0.0)],
-                    WHITE,
-                );
-                nb.quad(
-                    [v3(xb, top + 0.32, p.z - 0.075), v3(xa, top + 0.32, p.z - 0.075), v3(xa, top + 0.78, p.z - 0.075), v3(xb, top + 0.78, p.z - 0.075)],
-                    [((k + 1) as f32 / 3.0, 1.0), (k as f32 / 3.0, 1.0), (k as f32 / 3.0, 0.0), ((k + 1) as f32 / 3.0, 0.0)],
-                    WHITE,
-                );
-            }
-        }
     }
 
     fn counter(st: &mut Batch, a: &Assets, b: &crate::level::Belt, wood: usize) {
@@ -446,28 +462,42 @@ impl Scene {
         s.wall(cb, rim + 0.02, f, f + 0.08, rgb(0x5B3A29), true, 0.8);
         s.band(cb, bw + 0.02, rim, top, rgb(0xE2B98E), 0.8);
         s.wall(cb, rim, top - 0.04, top + 0.01, rgb(0x7A4B31), true, 0.8);
-        s.cap(cb, -bw - 0.02, top + 0.03, rgb(0xE8C39A), 0.8);
-        s.wall(cb, -bw - 0.02, top - 0.01, top + 0.03, rgb(0xB07C52), true, 0.8);
+        // The chef's well inside the belt: the counter's inner face down to a
+        // low work shelf, the shelf, and the floor the chef stands on.
+        let lip = -bw - 0.02;
+        let shelf = lip - 0.14;
+        let work = top - 0.16;
+        s.wall(cb, lip, top - 0.01, top + 0.03, rgb(0xB07C52), true, 0.8);
+        s.wall(cb, lip, work, top + 0.03, rgb(0xC08A5E), false, 0.8);
+        s.band(cb, shelf, lip, work, rgb(0xEFDDBF), 0.8);
+        s.wall(cb, shelf, f, work, rgb(0xA8754E), false, 0.8);
+        s.cap(cb, shelf, f + 0.012, rgb(0x7E5D45), 0.6);
         let steel = a.made.steel;
         let sb = st.get(steel, 3000);
         s.band(sb, bw, bw + 0.025, top + 0.012, WHITE, 0.5);
         s.band(sb, -bw - 0.025, -bw, top + 0.012, WHITE, 0.5);
         s.wall(sb, bw + 0.025, top - 0.01, top + 0.012, WHITE, false, 0.5);
         s.wall(sb, -bw - 0.025, top - 0.01, top + 0.012, WHITE, true, 0.5);
-        // The middle: soy sauce, tea and pickled ginger for every seat.
-        let n = ((s.half * 2.0) / 0.55).floor() as i32;
+        // On the shelf: chopping boards, sushi ready to go, bowls and soy.
+        let sz = s.r + (shelf + lip) / 2.0;
+        let n = ((s.half * 2.0) / 0.45).floor().max(1.0) as i32;
         for k in 0..=n {
-            let x = s.cx - s.half + k as f32 * (s.half * 2.0) / n.max(1) as f32;
-            let item = ["jar_B_small", "bowl_small", "soy", "jar_A_medium", "bowl_small", "soy"][k as usize % 6];
-            let sc = match item {
-                "soy" => 1.0,
-                "bowl_small" => 0.22,
-                _ => 0.28,
-            };
-            put(st, a, item, v3(x, top + 0.03, s.cz + if k % 2 == 0 { -0.05 } else { 0.05 }), k as f32, sc, WHITE);
+            let x = s.cx - s.half + k as f32 * (s.half * 2.0) / n as f32;
+            for (side, z) in [(0, s.cz - sz), (1, s.cz + sz)] {
+                let at = v3(x, work, z);
+                match (k + side * 2) % 4 {
+                    0 => st.get(wood, 24).cuboid(at + v3(-0.11, 0.0, -0.05), at + v3(0.11, 0.022, 0.05), rgb(0xF0D2A2), 0.4, true),
+                    1 => put(st, a, DISHES[(k + side) as usize % EVERYDAY].model, at, FRAC_PI_2, 0.22, WHITE),
+                    2 => put(st, a, "bowl_small", at, 0.0, 0.2, WHITE),
+                    _ => put(st, a, "soy", at, k as f32, 1.0, WHITE),
+                }
+            }
         }
-        put(st, a, "menu", v3(s.cx - s.half - s.r * 0.35, top + 0.03, s.cz), FRAC_PI_2, 0.35, WHITE);
-        put(st, a, "menu", v3(s.cx + s.half + s.r * 0.35, top + 0.03, s.cz), -FRAC_PI_2, 0.35, WHITE);
+        // Rice tubs at both ends of the well.
+        let tub = (s.r + shelf - 0.06).clamp(0.1, 0.22);
+        for dx in [-s.half, s.half] {
+            st.get(PLAIN, 200).cylinder(v3(s.cx + dx, f, s.cz), tub, work - f - 0.06, 18, rgb(0x9C6B45), rgb(0xFBF7EE));
+        }
     }
 
     /// The camera for a room, leaning a little toward `focus`.
@@ -512,7 +542,7 @@ impl Scene {
     }
 
     /// Draws the room and everything in it.
-    pub fn draw(&self, gl: &Gl, r: &Round, hero: &Hero, t: f32) {
+    pub fn draw(&self, gl: &Gl, r: &Round, hero: &Hero, chef: Option<&Hero>, t: f32) {
         let a = assets::get();
         let mut light = self.lighting;
         if r.layout.dark > 0.0 {
@@ -521,6 +551,16 @@ impl Scene {
         }
         gl.light(&light, self.cam.eye);
         self.draw_statics(gl);
+        render::blend_alpha(|| {
+            for &m in &self.shade {
+                gl.draw(m, None, &self.root, &Look::default());
+            }
+            for o in &r.layout.obstacles {
+                if let Shape::Circle { x, y, r: rad } = o.shape {
+                    gl.shadow(self.root.point(w(V2::new(x, y), 0.0)), rad / 100.0 * 1.5, rad / 100.0 * 1.3, 0.7);
+                }
+            }
+        });
         // Belts: the slats move along under a scrolling texture.
         for (i, &(m, dir)) in self.belts.iter().enumerate() {
             let shift = -r.belt_travel[i] / 100.0 / 0.25 * dir;
@@ -580,6 +620,16 @@ impl Scene {
         };
         render::blend_alpha(|| gl.shadow(self.root.point(feet), 0.42, 0.32, 0.9));
         hero.draw(gl, &m, &look, Some(1.6));
+        // A chef works inside each belt and reaches out as a plate goes on.
+        if let Some(c) = chef {
+            for b in &r.layout.belts {
+                let feet = w(V2::new(b.cx, b.cy), b.floor);
+                let cm = c.place(feet, 0.0, 1.62).then(&self.root);
+                c.draw(gl, &cm, &Look { rim: 0.4, ..Look::default() }, None);
+                let hat = M4::translate(feet + v3(0.0, 1.54, 0.0)).then(&self.root);
+                gl.draw(self.hat, None, &hat, &Look::default());
+            }
+        }
         if let Some(e) = &r.player.eating {
             if e.t < crate::rules::RULES.bite_s {
                 let hand = placement.point(hero.hand_pos);
@@ -729,11 +779,12 @@ impl Drop for Scene {
             for &(m, _) in &self.belts {
                 ffi::UnloadMesh(m);
             }
-            for &m in &self.water {
+            for &m in self.water.iter().chain(self.shade.iter()) {
                 ffi::UnloadMesh(m);
             }
             ffi::UnloadMesh(self.door_panel);
             ffi::UnloadMesh(self.ring);
+            ffi::UnloadMesh(self.hat);
         }
     }
 }

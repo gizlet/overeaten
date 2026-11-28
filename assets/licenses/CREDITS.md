@@ -21,6 +21,9 @@ Every model and texture in `assets/` is released under CC0 1.0 (public domain). 
 | salmon_roll | Quaternius | [Poly Pizza](https://poly.pizza/m/IFy5J2ypXo) |
 | dango | Quaternius | [Poly Pizza](https://poly.pizza/m/c4iK3MOB3A) |
 | soy | Kenney | [Poly Pizza](https://poly.pizza/m/t3mJ20Q4YH) |
+| Chef (character) | Quaternius | [Poly Pizza](https://poly.pizza/m/HMnuH5geEG) |
+| Woman (character) | Quaternius | [Poly Pizza](https://poly.pizza/m/QeIc9Mzjzs) |
+| Student (character) | Quaternius | [Poly Pizza](https://poly.pizza/m/DgOCW9ZCRJ) |
 | floor_wood texture | ambientCG | [WoodFloor051](https://ambientcg.com/view?id=WoodFloor051) |
 | tatami texture | ambientCG | [Tatami001](https://ambientcg.com/view?id=Tatami001) |
 | deck texture | ambientCG | [Planks037A](https://ambientcg.com/view?id=Planks037A) |

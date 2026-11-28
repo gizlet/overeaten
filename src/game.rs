@@ -156,6 +156,8 @@ pub struct Round {
     pub next_dish: Vec<usize>,
     pub collapses: u32,
     pub lean: f32,
+    /// When a plate last went onto a belt, for the chef.
+    pub last_served: f32,
     last_dish: Option<usize>,
     last_eat_t: f32,
     bites: Vec<f32>,
@@ -202,6 +204,7 @@ impl Round {
             next_dish: vec![0; n],
             collapses: 0,
             lean: 0.0,
+            last_served: -9.0,
             last_dish: None,
             last_eat_t: -99.0,
             bites: Vec::new(),
@@ -535,6 +538,7 @@ impl Round {
                 served_at: self.t,
             });
             self.serve_timer[b] = RULES.serve_every;
+            self.last_served = self.t;
             self.events.push(Event::Served { belt: b, golden });
         }
     }
@@ -719,6 +723,14 @@ impl Round {
             "mage" => {
                 give("hero.mage.first", won);
                 give("hero.mage.feat", t.plates >= 20);
+            }
+            "office" => {
+                give("hero.office.first", won);
+                give("hero.office.feat", won && t.main_done.is_some_and(|at| at <= 60.0));
+            }
+            "student" => {
+                give("hero.student.first", won);
+                give("hero.student.feat", won && t.max_combo >= 6);
             }
             _ => {
                 give("hero.skeleton.first", won);

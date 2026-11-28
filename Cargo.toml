@@ -1,7 +1,7 @@
 [package]
 name = "overeaten"
 description = "Overeaten · 自助大胃王: a 3D all-you-can-eat game for Gizlet OS. You do the eating."
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "MIT"
 rust-version = "1.88"
